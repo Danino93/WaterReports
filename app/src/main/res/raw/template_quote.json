@@ -1,0 +1,149 @@
+{
+  "id": "template_quote",
+  "name": "הצעת מחיר",
+  "description": "תבנית להצעות מחיר מקצועיות עם חישוב אוטומטי",
+  "icon": "receipt_long",
+  "version": "1.0.0",
+  "category": "commercial",
+  "sections": [
+    {
+      "id": "general_info",
+      "title": "מידע כללי",
+      "order": 1,
+      "fields": [
+        {
+          "id": "job_name",
+          "type": "text",
+          "label": "עבודה",
+          "placeholder": "הצעת מחיר",
+          "required": true,
+          "lines": 1
+        },
+        {
+          "id": "contractor_name",
+          "type": "text",
+          "label": "שם קבלן/ביצוע",
+          "placeholder": "אלון דנינו",
+          "required": true,
+          "lines": 1
+        },
+        {
+          "id": "contractor_company",
+          "type": "text",
+          "label": "קבלן/ביצוע",
+          "placeholder": "אשף האינסטלציה",
+          "required": true,
+          "lines": 1
+        },
+        {
+          "id": "attendees",
+          "type": "textarea",
+          "label": "נוכחים בבדיקה/הצעה",
+          "placeholder": "אני, בעל הנכס",
+          "required": false,
+          "lines": 3
+        },
+        {
+          "id": "site_image",
+          "type": "image",
+          "label": "תמונה כללית באתר (תמונת שער)",
+          "required": false,
+          "maxImages": 5
+        }
+      ]
+    },
+    {
+      "id": "client_details",
+      "title": "מזמין הבדיקה",
+      "order": 2,
+      "fields": [
+        {
+          "id": "client_first_name",
+          "type": "text",
+          "label": "שם פרטי",
+          "placeholder": "",
+          "required": true,
+          "lines": 1
+        },
+        {
+          "id": "client_last_name",
+          "type": "text",
+          "label": "שם משפחה",
+          "placeholder": "",
+          "required": true,
+          "lines": 1
+        },
+        {
+          "id": "client_company",
+          "type": "text",
+          "label": "חברה",
+          "placeholder": "",
+          "required": false,
+          "lines": 1
+        },
+        {
+          "id": "client_phone",
+          "type": "text",
+          "label": "טלפון",
+          "placeholder": "",
+          "required": true,
+          "lines": 1
+        },
+        {
+          "id": "client_email",
+          "type": "text",
+          "label": "אימייל",
+          "placeholder": "",
+          "required": false,
+          "lines": 1
+        },
+        {
+          "id": "client_city",
+          "type": "text",
+          "label": "עיר",
+          "placeholder": "",
+          "required": false,
+          "lines": 1
+        },
+        {
+          "id": "client_street",
+          "type": "text",
+          "label": "רחוב",
+          "placeholder": "",
+          "required": false,
+          "lines": 1
+        },
+        {
+          "id": "client_building_number",
+          "type": "text",
+          "label": "מספר בניין/רחוב",
+          "placeholder": "",
+          "required": false,
+          "lines": 1
+        },
+        {
+          "id": "client_apartment",
+          "type": "text",
+          "label": "דירה",
+          "placeholder": "",
+          "required": false,
+          "lines": 1
+        },
+        {
+          "id": "client_additional_address",
+          "type": "textarea",
+          "label": "פרטי כתובת נוספים",
+          "placeholder": "",
+          "required": false,
+          "lines": 2
+        }
+      ]
+    },
+    {
+      "id": "findings",
+      "title": "ממצאים",
+      "order": 3,
+      "fields": []
+    }
+  ]
+}

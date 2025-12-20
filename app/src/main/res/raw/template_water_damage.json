@@ -1,0 +1,137 @@
+{
+  "id": "water_damage_v1",
+  "name": "איתור נזקי מים",
+  "icon": "💧",
+  "version": "1.0",
+  "sections": [
+    {
+      "id": "general_info",
+      "title": "מידע כללי",
+      "order": 1,
+      "fields": [
+        {
+          "type": "text",
+          "id": "job_name",
+          "label": "עבודה",
+          "placeholder": "שם העבודה",
+          "required": true
+        },
+        {
+          "type": "text",
+          "id": "inspector_name",
+          "label": "שם הבודק",
+          "placeholder": "אשר האינסטלציה",
+          "required": true
+        },
+        {
+          "type": "text",
+          "id": "present_at_inspection",
+          "label": "נוכחים בבדיקה",
+          "placeholder": "אני , בעל הבית והדייר",
+          "required": false
+        },
+        {
+          "type": "text",
+          "id": "contractor_name",
+          "label": "קבלן ביצוע",
+          "placeholder": "אלירן דנינו",
+          "required": false
+        },
+        {
+          "type": "image",
+          "id": "general_image",
+          "label": "תמונה כללית באזור(תמונת שער)",
+          "maxImages": 5,
+          "required": false
+        }
+      ]
+    },
+    {
+      "id": "client_details",
+      "title": "מזמין הבדיקה",
+      "order": 2,
+      "fields": [
+        {
+          "type": "text",
+          "id": "client_first_name",
+          "label": "שם פרטי",
+          "placeholder": "אלירן",
+          "required": true
+        },
+        {
+          "type": "text",
+          "id": "client_last_name",
+          "label": "שם משפחה",
+          "placeholder": "לוי",
+          "required": true
+        },
+        {
+          "type": "text",
+          "id": "client_company",
+          "label": "חברה",
+          "placeholder": "שם החברה (אופציונלי)",
+          "required": false
+        },
+        {
+          "type": "text",
+          "id": "client_phone",
+          "label": "טלפון",
+          "placeholder": "0526703858",
+          "required": true
+        },
+        {
+          "type": "text",
+          "id": "client_email",
+          "label": "אי מייל",
+          "placeholder": "email@example.com",
+          "required": false
+        },
+        {
+          "type": "text",
+          "id": "client_city",
+          "label": "עיר",
+          "placeholder": "טבריה",
+          "required": false
+        },
+        {
+          "type": "text",
+          "id": "client_street",
+          "label": "שם רחוב",
+          "placeholder": "הסייפן",
+          "required": false
+        },
+        {
+          "type": "number",
+          "id": "client_building_number",
+          "label": "מספר בנין/ רחוב",
+          "default": 20,
+          "required": false
+        },
+        {
+          "type": "number",
+          "id": "client_apartment_number",
+          "label": "מספר דירה",
+          "default": 13,
+          "required": false
+        },
+        {
+          "type": "textarea",
+          "id": "additional_address_info",
+          "label": "כתובת מידע נוסף",
+          "placeholder": "הערות נוספות על הכתובת",
+          "required": false,
+          "lines": 2
+        }
+      ]
+    }
+  ],
+  "pdfLayout": {
+    "headerHeight": 80,
+    "footerHeight": 60,
+    "margins": [20, 20, 20, 20],
+    "colors": {
+      "primary": "#1976D2",
+      "secondary": "#4CAF50"
+    }
+  }
+}

@@ -1,0 +1,119 @@
+<resources>
+    <string name="app_name">אשף האינסטלציה</string>
+    
+    <!-- Navigation -->
+    <string name="nav_home">דף הבית</string>
+    <string name="nav_settings">הגדרות</string>
+    <string name="nav_reports">דוחות</string>
+    
+    <!-- Home Screen -->
+    <string name="home_title">עבודות</string>
+    <string name="home_search">חיפוש...</string>
+    <string name="home_new_job">עבודה חדשה</string>
+    <string name="home_total_jobs">סה״כ עבודות</string>
+    <string name="home_this_month">החודש</string>
+    <string name="home_drafts">טיוטות</string>
+    
+    <!-- Template Selection -->
+    <string name="template_title">בחר סוג עבודה</string>
+    <string name="template_water_damage">איתור נזקי מים</string>
+    <string name="template_quote">הצעת מחיר</string>
+    <string name="template_sewage">בדיקת ביוב</string>
+    <string name="template_add">הוסף תבנית</string>
+    
+    <!-- Job Details -->
+    <string name="job_details">פרטי עבודה</string>
+    <string name="job_number">מספר עבודה</string>
+    <string name="job_date">תאריך</string>
+    <string name="client_details">פרטי לקוח</string>
+    <string name="client_first_name">שם פרטי</string>
+    <string name="client_last_name">שם משפחה</string>
+    <string name="client_phone">טלפון</string>
+    <string name="client_address">כתובת</string>
+    <string name="client_company">חברה (אופציונלי)</string>
+    <string name="building_image">תמונת נכס</string>
+    
+    <!-- Editor -->
+    <string name="editor_title">עריכת דוח</string>
+    <string name="editor_save">שמור</string>
+    <string name="editor_preview">תצוגה מקדימה</string>
+    <string name="editor_export">ייצא PDF</string>
+    <string name="editor_progress">%d%% הושלם</string>
+    <string name="section_add">הוסף</string>
+    <string name="section_edit">ערוך</string>
+    <string name="section_delete">מחק</string>
+    
+    <!-- Images -->
+    <string name="image_take_photo">צלם</string>
+    <string name="image_choose">בחר מגלריה</string>
+    <string name="image_delete">מחק תמונה</string>
+    <string name="image_caption">תיאור</string>
+    
+    <!-- Declaration -->
+    <string name="declaration_title">תצהיר</string>
+    <string name="declaration_edit">ערוך תצהיר</string>
+    <string name="declaration_templates">תבניות תצהיר</string>
+    <string name="declaration_save_template">שמור כתבנית</string>
+    
+    <!-- Recommendations -->
+    <string name="recommendations_title">המלצות</string>
+    <string name="recommendation_add">הוסף המלצה</string>
+    <string name="recommendation_description">תיאור</string>
+    <string name="recommendation_quantity">כמות</string>
+    <string name="recommendation_unit">יחידה</string>
+    <string name="recommendation_price_per_unit">מחיר ליחידה</string>
+    <string name="recommendation_total">סה״כ</string>
+    
+    <!-- Quote -->
+    <string name="quote_title">הצעת מחיר</string>
+    <string name="quote_item">פריט</string>
+    <string name="quote_add_item">הוסף פריט</string>
+    <string name="quote_subtotal">סה״כ לפני מע״מ</string>
+    <string name="quote_vat">מע״מ (%d%%)</string>
+    <string name="quote_total">סה״כ כולל מע״מ</string>
+    
+    <!-- Export -->
+    <string name="export_title">ייצוא דוח</string>
+    <string name="export_local">שמור בטלפון</string>
+    <string name="export_drive">העלה ל-Google Drive</string>
+    <string name="export_share">שתף</string>
+    <string name="export_quality">איכות תמונות</string>
+    <string name="export_compression">דחיסה</string>
+    <string name="export_creating">יוצר PDF...</string>
+    <string name="export_success">PDF נוצר בהצלחה</string>
+    <string name="export_error">שגיאה ביצירת PDF</string>
+    
+    <!-- Settings -->
+    <string name="settings_title">הגדרות</string>
+    <string name="settings_profile">פרופיל שלי</string>
+    <string name="settings_branding">לוגו וברנדינג</string>
+    <string name="settings_certificates">תעודות והסמכות</string>
+    <string name="settings_templates">ניהול תבניות</string>
+    <string name="settings_pdf">הגדרות PDF</string>
+    <string name="settings_storage">אחסון וגיבוי</string>
+    <string name="settings_general">כללי</string>
+    
+    <!-- Common -->
+    <string name="save">שמור</string>
+    <string name="cancel">ביטול</string>
+    <string name="delete">מחק</string>
+    <string name="edit">ערוך</string>
+    <string name="continue_text">המשך</string>
+    <string name="back">חזור</string>
+    <string name="done">סיום</string>
+    <string name="yes">כן</string>
+    <string name="no">לא</string>
+    <string name="ok">אישור</string>
+    
+    <!-- Messages -->
+    <string name="msg_saved">נשמר בהצלחה</string>
+    <string name="msg_deleted">נמחק</string>
+    <string name="msg_error">אירעה שגיאה</string>
+    <string name="msg_loading">טוען...</string>
+    <string name="msg_no_data">אין נתונים</string>
+    
+    <!-- Permissions -->
+    <string name="permission_camera">נדרשת הרשאה למצלמה</string>
+    <string name="permission_storage">נדרשת הרשאה לאחסון</string>
+    <string name="permission_denied">הרשאה נדחתה</string>
+</resources>

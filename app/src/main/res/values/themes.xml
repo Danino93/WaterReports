@@ -1,0 +1,13 @@
+<resources>
+    <!-- Base theme for XML - Compose theme is defined in Theme.kt -->
+    <style name="Base.Theme.WaterDamageReports" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+        <!-- These colors are only for system UI (status bar, navigation bar) -->
+        <!-- The actual app theme colors are defined in Theme.kt for Compose -->
+        <item name="android:statusBarColor">@color/primary</item>
+        <item name="android:navigationBarColor">@color/white</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar">true</item>
+    </style>
+
+    <style name="Theme.WaterDamageReports" parent="Base.Theme.WaterDamageReports" />
+</resources>
