@@ -50,7 +50,7 @@ private val LightColorScheme = lightColorScheme(
 
 @Composable
 fun WaterDamageReportsTheme(
-    darkTheme: Boolean = isSystemInDarkTheme(),
+    darkTheme: Boolean = false, // Force light mode
     content: @Composable () -> Unit
 ) {
     val colorScheme = when {
