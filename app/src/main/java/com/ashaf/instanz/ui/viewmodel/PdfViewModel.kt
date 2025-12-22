@@ -57,7 +57,19 @@ class PdfViewModel(
                 val images = imageRepository.getImagesForJob(jobId).first()
                 
                 // Parse dataJson
+                android.util.Log.d("PdfViewModel", "==== PDF Generation Debug ====")
+                android.util.Log.d("PdfViewModel", "Job ID: $jobId")
+                android.util.Log.d("PdfViewModel", "Job dataJson RAW: ${job.dataJson}")
+                
                 val dataJson = parseDataJson(job.dataJson)
+                android.util.Log.d("PdfViewModel", "Parsed dataJson: $dataJson")
+                android.util.Log.d("PdfViewModel", "dataJson size: ${dataJson.size}")
+                dataJson.forEach { (sectionId, fields) ->
+                    android.util.Log.d("PdfViewModel", "  Section '$sectionId' has ${fields.size} fields:")
+                    fields.forEach { (fieldId, value) ->
+                        android.util.Log.d("PdfViewModel", "    - $fieldId = $value")
+                    }
+                }
                 
                 // Load job-specific settings (if available), otherwise use global settings
                 val jobSettings = job.getJobSettings()
@@ -107,31 +119,66 @@ class PdfViewModel(
     }
     
     private fun parseDataJson(jsonString: String): Map<String, Map<String, String>> {
+        android.util.Log.d("PdfViewModel", "===== parseDataJson START =====")
+        android.util.Log.d("PdfViewModel", "Input JSON: $jsonString")
+        
         return try {
             val gson = Gson()
             val jsonObject = gson.fromJson(jsonString, JsonObject::class.java)
             val result = mutableMapOf<String, Map<String, String>>()
             
+            android.util.Log.d("PdfViewModel", "JSON keys: ${jsonObject.keySet()}")
+            
             jsonObject.keySet().forEach { sectionId ->
-                val sectionObj = jsonObject.getAsJsonObject(sectionId)
-                val sectionMap = mutableMapOf<String, String>()
+                android.util.Log.d("PdfViewModel", "Processing key: '$sectionId'")
                 
-                sectionObj.keySet().forEach { fieldId ->
-                    val value = sectionObj.get(fieldId)?.asString ?: ""
-                    sectionMap[fieldId] = value
+                // Skip non-section keys like "customContent"
+                if (sectionId == "customContent") {
+                    android.util.Log.d("PdfViewModel", "  -> Skipping 'customContent' (not a data section)")
+                    return@forEach
                 }
                 
-                result[sectionId] = sectionMap
+                try {
+                    val sectionElement = jsonObject.get(sectionId)
+                    
+                    if (!sectionElement.isJsonObject) {
+                        android.util.Log.w("PdfViewModel", "  -> Skipping '$sectionId' (not a JSON object)")
+                        return@forEach
+                    }
+                    
+                    val sectionObj = sectionElement.asJsonObject
+                    val sectionMap = mutableMapOf<String, String>()
+                    
+                    android.util.Log.d("PdfViewModel", "  -> Section has ${sectionObj.keySet().size} fields")
+                    
+                    sectionObj.keySet().forEach { fieldId ->
+                        val value = sectionObj.get(fieldId)?.asString ?: ""
+                        sectionMap[fieldId] = value
+                        android.util.Log.d("PdfViewModel", "    Field: $fieldId = '$value'")
+                    }
+                    
+                    result[sectionId] = sectionMap
+                    android.util.Log.d("PdfViewModel", "  ✓ Added section '$sectionId' with ${sectionMap.size} fields")
+                } catch (e: Exception) {
+                    android.util.Log.e("PdfViewModel", "  ✗ Error parsing section '$sectionId': ${e.message}")
+                }
             }
             
+            android.util.Log.d("PdfViewModel", "===== parseDataJson END =====")
+            android.util.Log.d("PdfViewModel", "Result: ${result.size} sections parsed")
             result
         } catch (e: Exception) {
+            android.util.Log.e("PdfViewModel", "❌ CRITICAL ERROR in parseDataJson: ${e.message}", e)
             emptyMap()
         }
     }
     
     fun clearError() {
         _error.value = null
+    }
+    
+    fun setError(message: String) {
+        _error.value = message
     }
     
     fun clearGeneratedPdf() {

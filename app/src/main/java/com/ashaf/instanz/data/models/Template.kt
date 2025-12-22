@@ -159,10 +159,40 @@ data class QuoteSummary(
 
 // Template Custom Content - תוכן מותאם אישית של תבנית
 data class TemplateCustomContent(
+    // Logo and contact images
+    val logoImagePath: String? = null,
+    val contactImagePath: String? = null,
+    
+    // Contact details
+    val phone: String = "",
+    val email: String = "",
+    val businessNumber: String = "",
+    val website: String = "",
+    
+    // Visit/job info
+    val visitReason: String = "",
+    val company: String = "",
+    
+    // Expert/inspector details
     val inspectorName: String = "",
     val experienceTitle: String = "",
     val experienceText: String = "",
     val certificateImagePath: String? = null,
+    
+    // Disclaimer text
+    val disclaimerText: String = """המלצות הדוח לפי הממצאים בשטח ונתונים שנמסרו ע"י המזמין.
+
+הבדיקה בוצעה בשיטת אל-הרס ועל כן יתכן שבמהלך העבודות יתגלו רטיבויות/נזילות/כשלים נסתרים שלא נראו בעין המצלמה וידרשו טיפול נוסף.
+
+יתכנו כתמי רטיבות גם לאחר סיום העבודות - יש אפשרות לבצע בדיקת לחות של החול במעבדה ולקבוע האם קיים צורך לבצע ייבוש חול בעזרת משאבת לחות.
+
+חוות הדעת נכונה ליום הבדיקה.
+
+עקב ריכוז גבוהה של מים בדירה ייתכנו סטיות במטר מהמצלמה.
+
+חוות הדעת ניתנה למיטב ידיעתי וניסיוני המקצועי וללא אינטרס אישי ועניין כלשהו בנכס.""",
+    
+    // Custom sections content
     val sections: Map<String, List<TemplateSectionItem>> = emptyMap()
 )
 

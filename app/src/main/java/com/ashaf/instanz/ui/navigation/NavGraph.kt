@@ -26,10 +26,11 @@ sealed class Screen(val route: String) {
     object Home : Screen("home")
     object TemplateSelection : Screen("template_selection")
     object TemplateList : Screen("template_list")
-    object TemplateEditor : Screen("template_editor/{templateId}?jobId={jobId}") {
-        fun createRoute(templateId: String, jobId: Long? = null) = 
-            if (jobId != null) "template_editor/$templateId?jobId=$jobId"
-            else "template_editor/$templateId"
+    object TemplateEditor : Screen("template_editor/{templateId}") {
+        fun createRoute(templateId: String) = "template_editor/$templateId"
+    }
+    object JobTemplateEditor : Screen("job_template_editor/{jobId}/{templateId}") {
+        fun createRoute(jobId: Long, templateId: String) = "job_template_editor/$jobId/$templateId"
     }
     object JobDetails : Screen("job_details/{templateId}") {
         fun createRoute(templateId: String) = "job_details/$templateId"
@@ -128,7 +129,7 @@ fun NavGraph(
                     navController.navigate(Screen.Camera.createRoute(jId, sectionId, fieldId))
                 },
                 onTemplateEditClick = { templateId ->
-                    navController.navigate(Screen.TemplateEditor.createRoute(templateId, jobId))
+                    navController.navigate(Screen.JobTemplateEditor.createRoute(jobId, templateId))
                 },
                 onJobSettingsClick = { jId ->
                     navController.navigate(Screen.JobSettings.createRoute(jId))
@@ -239,19 +240,30 @@ fun NavGraph(
         composable(
             route = Screen.TemplateEditor.route,
             arguments = listOf(
-                navArgument("templateId") { type = NavType.StringType },
-                navArgument("jobId") { 
-                    type = NavType.LongType
-                    defaultValue = 0L
-                }
+                navArgument("templateId") { type = NavType.StringType }
             )
         ) { backStackEntry ->
             val templateId = backStackEntry.arguments?.getString("templateId") ?: "water_damage_v1"
-            val jobIdArg = backStackEntry.arguments?.getLong("jobId") ?: 0L
-            val jobId = if (jobIdArg == 0L) null else jobIdArg
             TemplateEditorScreen(
                 templateId = templateId,
+                onBackClick = {
+                    navController.popBackStack()
+                }
+            )
+        }
+        
+        composable(
+            route = Screen.JobTemplateEditor.route,
+            arguments = listOf(
+                navArgument("jobId") { type = NavType.LongType },
+                navArgument("templateId") { type = NavType.StringType }
+            )
+        ) { backStackEntry ->
+            val jobId = backStackEntry.arguments?.getLong("jobId") ?: 0L
+            val templateId = backStackEntry.arguments?.getString("templateId") ?: "water_damage_v1"
+            com.ashaf.instanz.ui.screens.template.JobTemplateEditorScreen(
                 jobId = jobId,
+                templateId = templateId,
                 onBackClick = {
                     navController.popBackStack()
                 }

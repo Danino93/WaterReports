@@ -40,7 +40,7 @@ class EditorViewModel(
         loadJobAndTemplate()
     }
     
-    private fun loadJobAndTemplate() {
+    fun loadJobAndTemplate() {
         viewModelScope.launch {
             _isLoading.value = true
             try {
@@ -89,6 +89,8 @@ class EditorViewModel(
             val currentJob = _job.value ?: return@launch
             
             try {
+                android.util.Log.d("EditorViewModel", "Updating field: section=$sectionId, field=$fieldId, value=$value")
+                
                 val dataJson = if (currentJob.dataJson.isBlank() || currentJob.dataJson == "{}") {
                     JsonObject()
                 } else {
@@ -102,14 +104,41 @@ class EditorViewModel(
                 val sectionObj = dataJson.getAsJsonObject(sectionId)
                 sectionObj.addProperty(fieldId, value)
                 
-                val updatedJob = currentJob.copy(
-                    dataJson = gson.toJson(dataJson),
+                // CRITICAL: Convert JsonObject to String ONCE
+                val dataJsonString = gson.toJson(dataJson)
+                android.util.Log.d("EditorViewModel", "New dataJson: $dataJsonString")
+                
+                // CRITICAL FIX: Update Job fields for client details
+                var updatedJob = currentJob.copy(
+                    dataJson = dataJsonString,
                     dateModified = System.currentTimeMillis()
                 )
                 
+                // Sync client details from dataJson to Job fields
+                if (sectionId == "client_details") {
+                    when (fieldId) {
+                        "client_first_name" -> updatedJob = updatedJob.copy(clientFirstName = value)
+                        "client_last_name" -> updatedJob = updatedJob.copy(
+                            clientLastName = value,
+                            title = "${updatedJob.clientFirstName} $value"
+                        )
+                        "client_phone" -> updatedJob = updatedJob.copy(clientPhone = value)
+                        "client_city", "client_street" -> {
+                            // Update address
+                            val city = sectionObj.get("client_city")?.asString ?: ""
+                            val street = sectionObj.get("client_street")?.asString ?: ""
+                            updatedJob = updatedJob.copy(clientAddress = "$city, $street")
+                        }
+                        "client_company" -> updatedJob = updatedJob.copy(clientCompany = value)
+                    }
+                }
+                
                 jobRepository.updateJob(updatedJob)
                 _job.value = updatedJob
+                
+                android.util.Log.d("EditorViewModel", "Job updated successfully: ${updatedJob.clientFirstName} ${updatedJob.clientLastName}")
             } catch (e: Exception) {
+                android.util.Log.e("EditorViewModel", "Error updating field", e)
                 _error.value = e.message
             }
         }
@@ -136,6 +165,7 @@ class EditorViewModel(
         viewModelScope.launch {
             val currentJob = _job.value ?: return@launch
             try {
+                // The job already has the updated dataJson from updateFieldValue calls
                 val updatedJob = currentJob.copy(
                     dateModified = System.currentTimeMillis()
                 )
@@ -180,6 +210,94 @@ class EditorViewModel(
                 jobRepository.updateJob(updatedJob)
                 _job.value = updatedJob
                 loadFindings()
+            } catch (e: Exception) {
+                _error.value = e.message
+            }
+        }
+    }
+    
+    fun moveFindingUp(findingId: String) {
+        viewModelScope.launch {
+            val currentJob = _job.value ?: return@launch
+            
+            try {
+                val dataJson = if (currentJob.dataJson.isBlank() || currentJob.dataJson == "{}") {
+                    JsonObject()
+                } else {
+                    gson.fromJson(currentJob.dataJson, JsonObject::class.java)
+                }
+                
+                if (dataJson.has("findings")) {
+                    val findingsArray = dataJson.getAsJsonArray("findings")
+                    val findingsList = mutableListOf<String>()
+                    findingsArray.forEach { findingsList.add(it.asString) }
+                    
+                    val index = findingsList.indexOf(findingId)
+                    if (index > 0) {
+                        // Swap with previous
+                        val temp = findingsList[index - 1]
+                        findingsList[index - 1] = findingsList[index]
+                        findingsList[index] = temp
+                        
+                        // Update array
+                        val newArray = com.google.gson.JsonArray()
+                        findingsList.forEach { newArray.add(it) }
+                        dataJson.add("findings", newArray)
+                        
+                        val updatedJob = currentJob.copy(
+                            dataJson = gson.toJson(dataJson),
+                            dateModified = System.currentTimeMillis()
+                        )
+                        
+                        jobRepository.updateJob(updatedJob)
+                        _job.value = updatedJob
+                        loadFindings()
+                    }
+                }
+            } catch (e: Exception) {
+                _error.value = e.message
+            }
+        }
+    }
+    
+    fun moveFindingDown(findingId: String) {
+        viewModelScope.launch {
+            val currentJob = _job.value ?: return@launch
+            
+            try {
+                val dataJson = if (currentJob.dataJson.isBlank() || currentJob.dataJson == "{}") {
+                    JsonObject()
+                } else {
+                    gson.fromJson(currentJob.dataJson, JsonObject::class.java)
+                }
+                
+                if (dataJson.has("findings")) {
+                    val findingsArray = dataJson.getAsJsonArray("findings")
+                    val findingsList = mutableListOf<String>()
+                    findingsArray.forEach { findingsList.add(it.asString) }
+                    
+                    val index = findingsList.indexOf(findingId)
+                    if (index >= 0 && index < findingsList.size - 1) {
+                        // Swap with next
+                        val temp = findingsList[index + 1]
+                        findingsList[index + 1] = findingsList[index]
+                        findingsList[index] = temp
+                        
+                        // Update array
+                        val newArray = com.google.gson.JsonArray()
+                        findingsList.forEach { newArray.add(it) }
+                        dataJson.add("findings", newArray)
+                        
+                        val updatedJob = currentJob.copy(
+                            dataJson = gson.toJson(dataJson),
+                            dateModified = System.currentTimeMillis()
+                        )
+                        
+                        jobRepository.updateJob(updatedJob)
+                        _job.value = updatedJob
+                        loadFindings()
+                    }
+                }
             } catch (e: Exception) {
                 _error.value = e.message
             }

@@ -39,6 +39,7 @@ fun JobDetailsScreen(
     val viewModel: JobViewModel = viewModel(
         factory = JobViewModelFactory(
             jobRepository = appContainer.jobRepository,
+            templateRepository = appContainer.templateRepository,
             jobId = null
         )
     )

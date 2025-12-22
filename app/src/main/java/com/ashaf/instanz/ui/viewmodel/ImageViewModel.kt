@@ -67,6 +67,15 @@ class ImageViewModel(
         }
     }
     
+    // Helper function for adding images from gallery
+    fun addImageFromGallery(
+        sectionId: String,
+        filePath: String,
+        caption: String = ""
+    ) {
+        addImage(filePath, sectionId, "", caption)
+    }
+    
     fun updateImageCaption(imageId: Long, newCaption: String) {
         viewModelScope.launch {
             val image = _images.value.find { it.id == imageId }

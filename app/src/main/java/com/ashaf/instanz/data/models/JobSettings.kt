@@ -13,7 +13,7 @@ data class JobSettings(
     val showPricesInReport: Boolean = true,
     val showUnitPriceAndQuantity: Boolean = true,
     val showVatInReport: Boolean = true,
-    val vatPercent: Int = 17,
+    val vatPercent: Int = 18,
     
     // הגדרות מתקדמות
     val showInMasterTemplates: Boolean = false,

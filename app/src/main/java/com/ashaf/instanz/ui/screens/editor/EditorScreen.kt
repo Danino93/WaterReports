@@ -78,6 +78,11 @@ fun EditorScreen(
     val isLoading by viewModel.isLoading.collectAsState()
     val findings by viewModel.findings.collectAsState()
     
+    // Reload job data when returning to screen
+    LaunchedEffect(jobId) {
+        viewModel.loadJobAndTemplate()
+    }
+    
     // Auto-save state
     var showSaveMessage by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
@@ -126,8 +131,8 @@ fun EditorScreen(
         }
     }
     
-    // Auto-save function
-    fun autoSave() {
+    // Manual save function (only when clicking Save button or switching tabs)
+    fun manualSave() {
         scope.launch {
             viewModel.saveChanges()
             showSaveMessage = true
@@ -153,7 +158,7 @@ fun EditorScreen(
                 },
                 actions = {
                     // Save button
-                    IconButton(onClick = { autoSave() }) {
+                    IconButton(onClick = { manualSave() }) {
                         Icon(Icons.Default.Save, "שמירה", tint = Color.White)
                     }
                     
@@ -163,7 +168,16 @@ fun EditorScreen(
                     }
                     
                     // PDF/Preview button
-                    IconButton(onClick = { jobId.let(onPreviewClick) }) {
+                    IconButton(onClick = { 
+                        // Force save before preview to ensure consistency
+                        android.util.Log.d("EditorScreen", "💾 Forcing save before preview...")
+                        scope.launch {
+                            viewModel.saveChanges()
+                            kotlinx.coroutines.delay(100) // Wait for DB write
+                            android.util.Log.d("EditorScreen", "✅ Save complete, opening preview")
+                            jobId.let(onPreviewClick)
+                        }
+                    }) {
                         Icon(Icons.Default.PictureAsPdf, "דוח", tint = Color.White)
                     }
                     
@@ -188,7 +202,14 @@ fun EditorScreen(
                                 },
                                 onClick = { 
                                     showMenu = false
-                                    jobId.let(onPreviewClick)
+                                    // Force save before preview to ensure consistency
+                                    android.util.Log.d("EditorScreen", "💾 Forcing save before preview (from menu)...")
+                                    scope.launch {
+                                        viewModel.saveChanges()
+                                        kotlinx.coroutines.delay(100) // Wait for DB write
+                                        android.util.Log.d("EditorScreen", "✅ Save complete, opening preview")
+                                        jobId.let(onPreviewClick)
+                                    }
                                 },
                                 leadingIcon = {
                                     Icon(Icons.Default.KeyboardArrowLeft, contentDescription = null)
@@ -393,8 +414,7 @@ fun EditorScreen(
                                         viewModel = viewModel,
                                         imageViewModel = imageViewModel,
                                         onCameraClick = onCameraClick,
-                                        jobId = jobId,
-                                        onValueChanged = { autoSave() }
+                                        jobId = jobId
                                     )
                                 }
                             }
@@ -422,8 +442,7 @@ fun EditorScreen(
                                         imageViewModel = imageViewModel,
                                         jobId = jobId,
                                         onCameraClick = onCameraClick,
-                                        onDelete = { viewModel.deleteFinding(findingId) },
-                                        onValueChanged = { autoSave() }
+                                        onDelete = { viewModel.deleteFinding(findingId) }
                                     )
                                 }
                                 
@@ -753,46 +772,37 @@ fun TextFieldEditorFromJson(
     viewModel: EditorViewModel,
     onValueChanged: () -> Unit = {}
 ) {
-    val currentValue = remember(fieldId) {
-        viewModel.getFieldValue(sectionId, fieldId)
+    val job by viewModel.job.collectAsState()
+    
+    // Get value directly from viewModel - will update when job, section, or field changes
+    val storedValue = viewModel.getFieldValue(sectionId, fieldId)
+    var textValue by remember(job?.id, sectionId, fieldId) { mutableStateOf(storedValue) }
+    
+    // Sync with stored value when returning to screen OR switching tabs
+    LaunchedEffect(job?.id, sectionId, fieldId) {
+        textValue = viewModel.getFieldValue(sectionId, fieldId)
     }
-    var textValue by remember(currentValue) { mutableStateOf(currentValue) }
     
-    // Check if field is empty and required
-    val isError = required && textValue.isBlank()
-    
-    Column {
-        OutlinedTextField(
-            value = textValue,
-            onValueChange = { newValue ->
-                textValue = newValue
-                viewModel.updateFieldValue(sectionId, fieldId, newValue)
-                onValueChanged()
-            },
-            label = { Text(fieldLabel + if (required) " *" else "") },
-            placeholder = { Text(placeholder) },
-            modifier = Modifier.fillMaxWidth(),
-            singleLine = lines == 1,
-            minLines = if (lines > 1) lines else 1,
-            maxLines = if (lines > 1) lines + 3 else 1,
-            isError = isError,
-            textStyle = MaterialTheme.typography.bodyLarge.copy(
-                textDirection = TextDirection.ContentOrRtl
-            ),
-            keyboardOptions = KeyboardOptions(
-                imeAction = if (lines == 1) ImeAction.Next else ImeAction.Default
-            )
+    OutlinedTextField(
+        value = textValue,
+        onValueChange = { newValue ->
+            textValue = newValue
+            viewModel.updateFieldValue(sectionId, fieldId, newValue)
+            onValueChanged()
+        },
+        label = { Text(fieldLabel) }, // Removed required indicator
+        placeholder = { Text(placeholder) },
+        modifier = Modifier.fillMaxWidth(),
+        singleLine = lines == 1,
+        minLines = if (lines > 1) lines else 1,
+        maxLines = if (lines > 1) lines + 3 else 1,
+        textStyle = MaterialTheme.typography.bodyLarge.copy(
+            textDirection = TextDirection.ContentOrRtl
+        ),
+        keyboardOptions = KeyboardOptions(
+            imeAction = if (lines == 1) ImeAction.Next else ImeAction.Default
         )
-        
-        if (isError) {
-            Text(
-                text = "שדה חובה",
-                color = MaterialTheme.colorScheme.error,
-                style = MaterialTheme.typography.bodySmall,
-                modifier = Modifier.padding(start = 16.dp, top = 4.dp)
-            )
-        }
-    }
+    )
 }
 
 @Composable
@@ -806,47 +816,33 @@ fun TextAreaEditorFromJson(
     viewModel: EditorViewModel,
     onValueChanged: () -> Unit = {}
 ) {
-    val currentValue = remember(fieldId) {
+    val job by viewModel.job.collectAsState()
+    val currentValue = remember(sectionId, fieldId, job?.dataJson) {
         viewModel.getFieldValue(sectionId, fieldId)
     }
-    var textValue by remember(currentValue) { mutableStateOf(currentValue) }
+    var textValue by remember(sectionId, fieldId, job?.dataJson) { mutableStateOf(currentValue) }
     
-    // Check if field is empty and required
-    val isError = required && textValue.isBlank()
-    
-    Column {
-        OutlinedTextField(
-            value = textValue,
-            onValueChange = { newValue ->
-                textValue = newValue
-                viewModel.updateFieldValue(sectionId, fieldId, newValue)
-                onValueChanged()
-            },
-            label = { Text(fieldLabel + if (required) " *" else "") },
-            placeholder = { Text(placeholder) },
-            modifier = Modifier
-                .fillMaxWidth()
-                .heightIn(min = (lines * 24).dp),
-            minLines = lines,
-            maxLines = lines + 3,
-            isError = isError,
-            textStyle = MaterialTheme.typography.bodyLarge.copy(
-                textDirection = TextDirection.ContentOrRtl
-            ),
-            keyboardOptions = KeyboardOptions(
-                imeAction = ImeAction.Default
-            )
+    OutlinedTextField(
+        value = textValue,
+        onValueChange = { newValue ->
+            textValue = newValue
+            viewModel.updateFieldValue(sectionId, fieldId, newValue)
+            onValueChanged()
+        },
+        label = { Text(fieldLabel) }, // Removed required indicator
+        placeholder = { Text(placeholder) },
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = (lines * 24).dp),
+        minLines = lines,
+        maxLines = lines + 3,
+        textStyle = MaterialTheme.typography.bodyLarge.copy(
+            textDirection = TextDirection.ContentOrRtl
+        ),
+        keyboardOptions = KeyboardOptions(
+            imeAction = ImeAction.Default
         )
-        
-        if (isError) {
-            Text(
-                text = "שדה חובה",
-                color = MaterialTheme.colorScheme.error,
-                style = MaterialTheme.typography.bodySmall,
-                modifier = Modifier.padding(start = 16.dp, top = 4.dp)
-            )
-        }
-    }
+    )
 }
 
 @Composable
@@ -895,11 +891,17 @@ fun NumberFieldEditorFromJson(
     viewModel: EditorViewModel,
     onValueChanged: (Double) -> Unit = {}
 ) {
-    val currentValue = remember(fieldId) {
-        viewModel.getFieldValue(sectionId, fieldId)
+    val job by viewModel.job.collectAsState()
+    
+    val storedValue = viewModel.getFieldValue(sectionId, fieldId)
+    var textValue by remember(job?.id, sectionId, fieldId) {
+        mutableStateOf(if (storedValue.isBlank()) default.toString() else storedValue)
     }
-    var textValue by remember(currentValue) {
-        mutableStateOf(if (currentValue.isBlank()) default.toString() else currentValue)
+    
+    // Sync with stored value when returning to screen OR switching tabs
+    LaunchedEffect(job?.id, sectionId, fieldId) {
+        val newValue = viewModel.getFieldValue(sectionId, fieldId)
+        textValue = if (newValue.isBlank()) default.toString() else newValue
     }
     
     OutlinedTextField(
@@ -911,10 +913,9 @@ fun NumberFieldEditorFromJson(
                 onValueChanged(newValue.toDoubleOrNull() ?: 0.0)
             }
         },
-        label = { Text(fieldLabel + if (required) " *" else "") },
+        label = { Text(fieldLabel) }, // Removed required indicator
         modifier = Modifier.fillMaxWidth(),
         singleLine = true,
-        isError = required && textValue.isBlank(),
         suffix = { Text("ש\"ח", style = MaterialTheme.typography.bodySmall) }
     )
 }
@@ -964,6 +965,7 @@ fun ImageFieldFromJson(
     imageViewModel: ImageViewModel,
     onCameraClick: () -> Unit
 ) {
+    val context = androidx.compose.ui.platform.LocalContext.current
     val images by imageViewModel.images.collectAsState()
     val sectionImages = remember(images, sectionId, fieldId) {
         images.filter { it.sectionId == sectionId }
@@ -971,6 +973,36 @@ fun ImageFieldFromJson(
     
     var showDeleteDialog by remember { mutableStateOf<JobImage?>(null) }
     var showCaptionDialog by remember { mutableStateOf<JobImage?>(null) }
+    var showImageSourceDialog by remember { mutableStateOf(false) }
+    
+    // Gallery launcher
+    val galleryLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        contract = androidx.activity.result.contract.ActivityResultContracts.GetContent()
+    ) { uri: android.net.Uri? ->
+        uri?.let {
+            try {
+                val inputStream = context.contentResolver.openInputStream(uri)
+                val imageDir = java.io.File(context.filesDir, "job_images")
+                if (!imageDir.exists()) {
+                    imageDir.mkdirs()
+                }
+                
+                val imageFileName = "image_${sectionId}_${System.currentTimeMillis()}.jpg"
+                val imageFile = java.io.File(imageDir, imageFileName)
+                
+                inputStream?.use { input ->
+                    java.io.FileOutputStream(imageFile).use { output ->
+                        input.copyTo(output)
+                    }
+                }
+                
+                // Add to imageViewModel
+                imageViewModel.addImageFromGallery(sectionId, imageFile.absolutePath)
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
     
     Column(
         modifier = Modifier.fillMaxWidth(),
@@ -999,7 +1031,7 @@ fun ImageFieldFromJson(
                 // Add button at the end if not at max
                 if (sectionImages.size < maxImages) {
                     item {
-                        AddImageButton(onClick = onCameraClick)
+                        AddImageButton(onClick = { showImageSourceDialog = true })
                     }
                 }
             }
@@ -1009,7 +1041,7 @@ fun ImageFieldFromJson(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(120.dp)
-                    .clickable(onClick = onCameraClick),
+                    .clickable(onClick = { showImageSourceDialog = true }),
                 colors = CardDefaults.cardColors(
                     containerColor = MaterialTheme.colorScheme.surfaceVariant
                 )
@@ -1029,7 +1061,7 @@ fun ImageFieldFromJson(
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = "לחץ לצילום תמונה",
+                        text = "לחץ להוספת תמונה",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -1046,6 +1078,57 @@ fun ImageFieldFromJson(
             text = "${sectionImages.size}/$maxImages תמונות",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+    
+    // Image Source Dialog (Camera or Gallery)
+    if (showImageSourceDialog) {
+        AlertDialog(
+            onDismissRequest = { showImageSourceDialog = false },
+            title = {
+                Text(
+                    "הוסף תמונה",
+                    fontWeight = FontWeight.Bold
+                )
+            },
+            text = {
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Button(
+                        onClick = {
+                            showImageSourceDialog = false
+                            onCameraClick()
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(containerColor = Primary)
+                    ) {
+                        Icon(Icons.Default.CameraAlt, contentDescription = null)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("צלם תמונה")
+                    }
+                    
+                    Button(
+                        onClick = {
+                            showImageSourceDialog = false
+                            galleryLauncher.launch("image/*")
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(containerColor = Accent)
+                    ) {
+                        Icon(Icons.Default.Image, contentDescription = null)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("בחר מהגלריה")
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = {
+                TextButton(onClick = { showImageSourceDialog = false }) {
+                    Text("ביטול")
+                }
+            }
         )
     }
     
@@ -1215,6 +1298,54 @@ fun FindingCard(
     onDelete: () -> Unit,
     onValueChanged: () -> Unit = {}
 ) {
+    var showImageSourceDialog by remember { mutableStateOf(false) }
+    var isExpanded by remember { mutableStateOf(true) } // Start expanded by default
+    val context = androidx.compose.ui.platform.LocalContext.current
+    
+    // Gallery launcher for picking images
+    val galleryLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.GetContent()
+    ) { uri: android.net.Uri? ->
+        uri?.let { selectedUri ->
+            // Copy image from URI to internal storage
+            try {
+                val contentResolver = context.contentResolver
+                val inputStream = contentResolver.openInputStream(selectedUri)
+                
+                if (inputStream != null) {
+                    // Create a unique file name
+                    val fileName = "finding_${findingId}_${System.currentTimeMillis()}.jpg"
+                    val outputFile = File(context.filesDir, fileName)
+                    
+                    // Copy file
+                    inputStream.use { input ->
+                        outputFile.outputStream().use { output ->
+                            input.copyTo(output)
+                        }
+                    }
+                    
+                    // Add to imageViewModel with the internal file path
+                    imageViewModel.addImageFromGallery(
+                        sectionId = findingId,
+                        filePath = outputFile.absolutePath,
+                        caption = ""
+                    )
+                    
+                    android.util.Log.d("FindingCard", "✅ Image added from gallery: ${outputFile.absolutePath}")
+                } else {
+                    throw Exception("לא ניתן לקרוא את התמונה")
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("FindingCard", "❌ Error adding image from gallery", e)
+                android.widget.Toast.makeText(
+                    context,
+                    "שגיאה בטעינת תמונה: ${e.message}",
+                    android.widget.Toast.LENGTH_SHORT
+                ).show()
+            }
+        }
+    }
+    
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(12.dp),
@@ -1227,34 +1358,98 @@ fun FindingCard(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            // Header with title and delete button
+            // Get subject for header display
+            val job by viewModel.job.collectAsState()
+            val subjectValue = viewModel.getFieldValue(findingId, "finding_subject")
+            
+            // Header with title, expand/collapse, and delete button
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { isExpanded = !isExpanded }, // Click to toggle
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = "ממצא #$findingNumber",
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold,
-                    color = Primary
-                )
-                IconButton(onClick = onDelete) {
-                    Icon(
-                        Icons.Default.Delete,
-                        contentDescription = "מחק ממצא",
-                        tint = MaterialTheme.colorScheme.error
-                    )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    IconButton(onClick = { isExpanded = !isExpanded }) {
+                        Icon(
+                            if (isExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                            contentDescription = if (isExpanded) "כווץ" else "הרחב",
+                            tint = Primary
+                        )
+                    }
+                    Column {
+                        Text(
+                            text = "ממצא #$findingNumber",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = Primary
+                        )
+                        if (!isExpanded && subjectValue.isNotBlank()) {
+                            Text(
+                                text = subjectValue,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = TextSecondary,
+                                maxLines = 1
+                            )
+                        }
+                    }
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    // Move up button
+                    IconButton(
+                        onClick = { viewModel.moveFindingUp(findingId) },
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.ArrowUpward,
+                            contentDescription = "העלה למעלה",
+                            tint = Secondary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                    // Move down button
+                    IconButton(
+                        onClick = { viewModel.moveFindingDown(findingId) },
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.ArrowDownward,
+                            contentDescription = "הורד למטה",
+                            tint = Secondary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                    // Delete button
+                    IconButton(
+                        onClick = onDelete,
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.Delete,
+                            contentDescription = "מחק ממצא",
+                            tint = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
                 }
             }
             
-            Divider()
+            if (isExpanded) {
+                Divider()
             
             // Subject field
-            val subjectValue = remember(findingId) {
-                viewModel.getFieldValue(findingId, "finding_subject")
+            val job by viewModel.job.collectAsState()
+            val subjectValue = viewModel.getFieldValue(findingId, "finding_subject")
+            var subject by remember(job?.id, findingId) { mutableStateOf(subjectValue) }
+            
+            // Sync with stored value when returning to screen OR switching findings
+            LaunchedEffect(job?.id, findingId) {
+                subject = viewModel.getFieldValue(findingId, "finding_subject")
             }
-            var subject by remember(subjectValue) { mutableStateOf(subjectValue) }
             
             OutlinedTextField(
                 value = subject,
@@ -1274,10 +1469,12 @@ fun FindingCard(
             )
             
             // Category field
-            val categoryValue = remember(findingId) {
-                viewModel.getFieldValue(findingId, "finding_category")
+            val categoryValue = viewModel.getFieldValue(findingId, "finding_category")
+            var category by remember(job?.id, findingId) { mutableStateOf(categoryValue) }
+            
+            LaunchedEffect(job?.id, findingId) {
+                category = viewModel.getFieldValue(findingId, "finding_category")
             }
-            var category by remember(categoryValue) { mutableStateOf(categoryValue) }
             
             OutlinedTextField(
                 value = category,
@@ -1297,10 +1494,12 @@ fun FindingCard(
             )
             
             // Description field
-            val descriptionValue = remember(findingId) {
-                viewModel.getFieldValue(findingId, "finding_description")
+            val descriptionValue = viewModel.getFieldValue(findingId, "finding_description")
+            var description by remember(job?.id, findingId) { mutableStateOf(descriptionValue) }
+            
+            LaunchedEffect(job?.id, findingId) {
+                description = viewModel.getFieldValue(findingId, "finding_description")
             }
-            var description by remember(descriptionValue) { mutableStateOf(descriptionValue) }
             
             OutlinedTextField(
                 value = description,
@@ -1322,10 +1521,12 @@ fun FindingCard(
             )
             
             // Note field
-            val noteValue = remember(findingId) {
-                viewModel.getFieldValue(findingId, "finding_note")
+            val noteValue = viewModel.getFieldValue(findingId, "finding_note")
+            var note by remember(job?.id, findingId) { mutableStateOf(noteValue) }
+            
+            LaunchedEffect(job?.id, findingId) {
+                note = viewModel.getFieldValue(findingId, "finding_note")
             }
-            var note by remember(noteValue) { mutableStateOf(noteValue) }
             
             OutlinedTextField(
                 value = note,
@@ -1364,7 +1565,7 @@ fun FindingCard(
             ) {
                 item {
                     AddImageButton(
-                        onClick = { onCameraClick(jobId, findingId, "finding_images") }
+                        onClick = { showImageSourceDialog = true }  // Open dialog instead
                     )
                 }
                 
@@ -1551,8 +1752,11 @@ fun FindingCard(
                                         totalPrice = if (total > 0) total.toString() else ""
                                         recObj.addProperty("totalPrice", totalPrice)
                                         
+                                        android.util.Log.d("FindingCard", "✅ Quantity changed: qty=$qty, price=$price, total=$total")
+                                        
                                         val gson = Gson()
                                         viewModel.updateFieldValue(findingId, "recommendations", gson.toJson(recommendations))
+                                        viewModel.saveChanges() // Save immediately
                                         onValueChanged()
                                     }
                                 },
@@ -1597,8 +1801,11 @@ fun FindingCard(
                                     totalPrice = if (total > 0) total.toString() else ""
                                     recObj.addProperty("totalPrice", totalPrice)
                                     
+                                    android.util.Log.d("FindingCard", "✅ Price changed: qty=$qty, price=$price, total=$total")
+                                    
                                     val gson = Gson()
                                     viewModel.updateFieldValue(findingId, "recommendations", gson.toJson(recommendations))
+                                    viewModel.saveChanges() // Save immediately
                                     onValueChanged()
                                 }
                             },
@@ -1609,19 +1816,30 @@ fun FindingCard(
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
                         )
                         
-                        // Total price (read-only)
+                        // Total price (editable - can be manually overridden)
                         OutlinedTextField(
                             value = totalPrice,
-                            onValueChange = {},
-                            label = { Text("מחיר") },
+                            onValueChange = { newValue ->
+                                if (newValue.isEmpty() || newValue.toDoubleOrNull() != null) {
+                                    totalPrice = newValue
+                                    recObj.addProperty("totalPrice", newValue)
+                                    
+                                    android.util.Log.d("FindingCard", "✅ Total price manually changed: $newValue")
+                                    
+                                    val gson = Gson()
+                                    viewModel.updateFieldValue(findingId, "recommendations", gson.toJson(recommendations))
+                                    viewModel.saveChanges() // Save immediately
+                                    onValueChanged()
+                                }
+                            },
+                            label = { Text("מחיר כולל") },
+                            placeholder = { Text("0.00") },
                             modifier = Modifier.fillMaxWidth(),
-                            readOnly = true,
-                            enabled = false,
                             singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                             colors = OutlinedTextFieldDefaults.colors(
-                                disabledTextColor = MaterialTheme.colorScheme.onSurface,
-                                disabledBorderColor = MaterialTheme.colorScheme.outline,
-                                disabledLabelColor = MaterialTheme.colorScheme.onSurfaceVariant
+                                focusedBorderColor = Accent,
+                                focusedLabelColor = Accent
                             )
                         )
                     }
@@ -1643,7 +1861,78 @@ fun FindingCard(
                         .padding(16.dp)
                 )
             }
+            
+            // Collapse button at bottom
+            Divider(modifier = Modifier.padding(vertical = 12.dp))
+            
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { isExpanded = false }
+                    .padding(vertical = 8.dp),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    Icons.Default.ExpandLess,
+                    contentDescription = "כווץ",
+                    tint = Primary,
+                    modifier = Modifier.size(24.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "כווץ ממצא",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = Primary,
+                    fontWeight = FontWeight.Medium
+                )
+            }
         }
+            } // Close if (isExpanded)
+    }
+    
+    // Image Source Dialog (Camera vs Gallery) for Findings
+    if (showImageSourceDialog) {
+        AlertDialog(
+            onDismissRequest = { showImageSourceDialog = false },
+            title = { Text("בחר מקור תמונה", fontWeight = FontWeight.Bold) },
+            text = {
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Button(
+                        onClick = {
+                            showImageSourceDialog = false
+                            onCameraClick(jobId, findingId, "finding_images")
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(containerColor = Primary)
+                    ) {
+                        Icon(Icons.Default.CameraAlt, contentDescription = null)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("צלם תמונה")
+                    }
+                    Button(
+                        onClick = {
+                            showImageSourceDialog = false
+                            galleryLauncher.launch("image/*")
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(containerColor = Secondary)
+                    ) {
+                        Icon(Icons.Default.PhotoLibrary, contentDescription = null)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("בחר מהגלריה")
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showImageSourceDialog = false }) {
+                    Text("ביטול")
+                }
+            }
+        )
     }
 }
 

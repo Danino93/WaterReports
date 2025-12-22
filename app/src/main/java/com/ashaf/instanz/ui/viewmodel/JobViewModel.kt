@@ -5,13 +5,19 @@ import androidx.lifecycle.viewModelScope
 import com.ashaf.instanz.data.models.Job
 import com.ashaf.instanz.data.models.JobStatus
 import com.ashaf.instanz.data.repositories.JobRepository
+import com.ashaf.instanz.data.repositories.TemplateRepository
+import com.google.gson.Gson
+import com.google.gson.JsonObject
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 
 class JobViewModel(
     private val jobRepository: JobRepository,
+    private val templateRepository: TemplateRepository,
     private val jobId: Long?
 ) : ViewModel() {
+    
+    private val gson = Gson()
     
     private val _job = MutableStateFlow<Job?>(null)
     val job: StateFlow<Job?> = _job.asStateFlow()
@@ -56,6 +62,25 @@ class JobViewModel(
             _isLoading.value = true
             try {
                 val currentTime = System.currentTimeMillis()
+                
+                // Load template to get default customContent
+                val template = templateRepository.getTemplateById(templateId)
+                val dataJson = JsonObject()
+                
+                // Load custom content from template if exists
+                template?.customContent?.let { customContentJson ->
+                    if (customContentJson.isNotBlank()) {
+                        // Copy the template's customContent as the initial data for this job
+                        try {
+                            val customContentObj = gson.fromJson(customContentJson, JsonObject::class.java)
+                            dataJson.add("customContent", customContentObj)
+                        } catch (e: Exception) {
+                            // If parsing fails, just save the string
+                            dataJson.addProperty("customContent", customContentJson)
+                        }
+                    }
+                }
+                
                 val newJob = Job(
                     templateId = templateId,
                     jobNumber = generateJobNumber(),
@@ -68,7 +93,7 @@ class JobViewModel(
                     dateCreated = currentTime,
                     dateModified = currentTime,
                     status = JobStatus.DRAFT,
-                    dataJson = "{}"
+                    dataJson = gson.toJson(dataJson)
                 )
                 val newJobId = jobRepository.insertJob(newJob)
                 _createdJobId.value = newJobId

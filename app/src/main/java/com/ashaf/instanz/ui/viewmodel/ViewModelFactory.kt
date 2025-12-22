@@ -26,13 +26,14 @@ class ViewModelFactory(
 
 class JobViewModelFactory(
     private val jobRepository: JobRepository,
+    private val templateRepository: TemplateRepository,
     private val jobId: Long?
 ) : ViewModelProvider.Factory {
     
     @Suppress("UNCHECKED_CAST")
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         if (modelClass.isAssignableFrom(JobViewModel::class.java)) {
-            return JobViewModel(jobRepository, jobId) as T
+            return JobViewModel(jobRepository, templateRepository, jobId) as T
         }
         throw IllegalArgumentException("Unknown ViewModel class: ${modelClass.name}")
     }
