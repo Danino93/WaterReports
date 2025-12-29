@@ -158,17 +158,115 @@ class PdfGenerator(
     // Helper function to create Hebrew-enabled Paragraph with RTL support
     private fun createHebrewParagraph(text: String): Paragraph {
         // Reverse the text manually for better RTL support with some fonts
-        // This is a workaround for fonts that don't handle RTL well
-        val processedText = if (containsHebrew(text)) {
-            reverseHebrewText(text)
-        } else {
-            text
-        }
-        
-        return Paragraph(processedText)
+        // IMPORTANT: Process each line separately to maintain correct line order!
+        val paragraph = Paragraph()
             .setFont(hebrewFont)
             .setBaseDirection(BaseDirection.RIGHT_TO_LEFT)
             .setTextAlignment(TextAlignment.RIGHT)
+        
+        if (containsHebrew(text)) {
+            // Split by lines and process each line separately
+            val lines = text.lines()
+            lines.forEachIndexed { index, line ->
+                val processedLine = reverseHebrewText(line)
+                paragraph.add(com.itextpdf.layout.element.Text(processedLine))
+                // Add newline between lines (but not after the last line)
+                if (index < lines.size - 1) {
+                    paragraph.add("\n")
+                }
+            }
+        } else {
+            paragraph.add(text)
+        }
+        
+        return paragraph
+    }
+    
+    // Helper function to create mixed-direction paragraph for footer (Hebrew RTL, English/Numbers LTR)
+    private fun createMixedDirectionParagraph(text: String): Paragraph {
+        val paragraph = Paragraph()
+            .setFont(hebrewFont)
+            .setBaseDirection(BaseDirection.RIGHT_TO_LEFT)
+            .setTextAlignment(TextAlignment.CENTER)
+        
+        // Split text into segments and build with proper BiDi handling
+        val segments = splitIntoBiDiSegments(text)
+        val LRM = '\u200E' // Left-to-Right Mark
+        
+        // Build text in reverse order (for RTL), but keep English/Numbers unchanged
+        val reversedSegments = segments.reversed()
+        val finalText = StringBuilder()
+        
+        reversedSegments.forEach { segment ->
+            when (segment.type) {
+                SegmentType.HEBREW -> {
+                    // Reverse Hebrew text for RTL display
+                    finalText.append(segment.text.reversed())
+                }
+                SegmentType.ENGLISH, SegmentType.NUMBER -> {
+                    // Keep English/Numbers as-is (LTR) - wrap with LRM to force LTR display
+                    finalText.append("$LRM${segment.text}$LRM")
+                }
+                SegmentType.SPACE, SegmentType.PUNCTUATION -> {
+                    finalText.append(segment.text)
+                }
+            }
+        }
+        
+        paragraph.add(com.itextpdf.layout.element.Text(finalText.toString()))
+        
+        return paragraph
+    }
+    
+    // Split text into BiDi segments (Hebrew, English, Numbers, etc.)
+    private fun splitIntoBiDiSegments(text: String): List<Segment> {
+        if (text.isBlank()) return emptyList()
+        
+        val segments = mutableListOf<Segment>()
+        var i = 0
+        
+        while (i < text.length) {
+            val char = text[i]
+            
+            when {
+                // Hebrew characters
+                char in '\u0590'..'\u05FF' -> {
+                    val start = i
+                    while (i < text.length && text[i] in '\u0590'..'\u05FF') {
+                        i++
+                    }
+                    segments.add(Segment(text.substring(start, i), SegmentType.HEBREW))
+                }
+                // English characters (keep LTR)
+                isEnglish(char) -> {
+                    val start = i
+                    while (i < text.length && (isEnglish(text[i]) || text[i].isDigit() || text[i] == '.' || text[i] == '@' || text[i] == ':' || text[i] == '/' || text[i] == '-')) {
+                        i++
+                    }
+                    segments.add(Segment(text.substring(start, i), SegmentType.ENGLISH))
+                }
+                // Numbers (keep LTR)
+                char.isDigit() -> {
+                    val start = i
+                    while (i < text.length && (text[i].isDigit() || text[i] == '.' || text[i] == ',')) {
+                        i++
+                    }
+                    segments.add(Segment(text.substring(start, i), SegmentType.NUMBER))
+                }
+                // Whitespace
+                char.isWhitespace() -> {
+                    segments.add(Segment(char.toString(), SegmentType.SPACE))
+                    i++
+                }
+                // Punctuation and special characters
+                else -> {
+                    segments.add(Segment(char.toString(), SegmentType.PUNCTUATION))
+                    i++
+                }
+            }
+        }
+        
+        return segments
     }
     
     // Check if text contains Hebrew characters
@@ -176,54 +274,106 @@ class PdfGenerator(
         return text.any { it in '\u0590'..'\u05FF' }
     }
     
+    // Check if character is English (Latin alphabet)
+    private fun isEnglish(char: Char): Boolean {
+        return char in 'a'..'z' || char in 'A'..'Z' || char == '@' || char == '.'
+    }
+    
     // Reverse Hebrew text for fonts that don't handle RTL properly
+    // This implements a simplified BiDi algorithm for Hebrew with proper handling of numbers, English, and punctuation
     private fun reverseHebrewText(text: String): String {
-        val result = StringBuilder()
+        if (text.isBlank()) return text
+        
+        // Split text into segments (words, numbers, punctuation)
+        val segments = mutableListOf<Segment>()
         var i = 0
         
         while (i < text.length) {
             val char = text[i]
             
-            // If it's a Hebrew character, collect the Hebrew sequence
-            if (char in '\u0590'..'\u05FF') {
-                val hebrewSequence = StringBuilder()
-                var j = i
-                
-                // Collect consecutive Hebrew characters and spaces
-                while (j < text.length && (text[j] in '\u0590'..'\u05FF' || text[j] == ' ')) {
-                    hebrewSequence.append(text[j])
-                    j++
+            when {
+                // Hebrew characters
+                char in '\u0590'..'\u05FF' -> {
+                    val start = i
+                    while (i < text.length && text[i] in '\u0590'..'\u05FF') {
+                        i++
+                    }
+                    segments.add(Segment(text.substring(start, i), SegmentType.HEBREW))
                 }
-                
-                // Reverse the Hebrew sequence
-                result.append(hebrewSequence.toString().reversed())
-                i = j
-            } else {
-                // Non-Hebrew character, keep as is
-                result.append(char)
-                i++
+                // English characters (keep LTR)
+                isEnglish(char) -> {
+                    val start = i
+                    while (i < text.length && (isEnglish(text[i]) || text[i].isDigit() || text[i] == '.' || text[i] == '@' || text[i] == ':' || text[i] == '/' || text[i] == '-')) {
+                        i++
+                    }
+                    segments.add(Segment(text.substring(start, i), SegmentType.ENGLISH))
+                }
+                // Numbers (keep LTR)
+                char.isDigit() -> {
+                    val start = i
+                    while (i < text.length && (text[i].isDigit() || text[i] == '.' || text[i] == ',')) {
+                        i++
+                    }
+                    segments.add(Segment(text.substring(start, i), SegmentType.NUMBER))
+                }
+                // Whitespace
+                char.isWhitespace() -> {
+                    segments.add(Segment(char.toString(), SegmentType.SPACE))
+                    i++
+                }
+                // Punctuation and special characters
+                else -> {
+                    segments.add(Segment(char.toString(), SegmentType.PUNCTUATION))
+                    i++
+                }
+            }
+        }
+        
+        // Reverse the order of segments (for RTL)
+        segments.reverse()
+        
+        // Build the result
+        val result = StringBuilder()
+        for (segment in segments) {
+            when (segment.type) {
+                SegmentType.HEBREW -> {
+                    // Reverse Hebrew characters within the word
+                    result.append(segment.text.reversed())
+                }
+                SegmentType.ENGLISH, SegmentType.NUMBER -> {
+                    // Keep English and numbers as-is (they are already LTR)
+                    result.append(segment.text)
+                }
+                SegmentType.SPACE, SegmentType.PUNCTUATION -> {
+                    result.append(segment.text)
+                }
             }
         }
         
         return result.toString()
     }
     
+    // Helper data classes for BiDi text processing
+    private data class Segment(val text: String, val type: SegmentType)
+    private enum class SegmentType { HEBREW, ENGLISH, NUMBER, SPACE, PUNCTUATION }
+    
     // Helper functions for cells with RTL support
     private fun createLabelCell(text: String): Cell {
         return Cell().add(
             createHebrewParagraph(text)
                 .setBold()
-                .setFontSize(11f)
+                .setFontSize(12f)  // Professional size
         )
             .setTextAlignment(TextAlignment.RIGHT)
-            .setBackgroundColor(DeviceRgb(240, 240, 240))
-            .setPadding(5f)
+            .setBackgroundColor(DeviceRgb(245, 245, 245))  // Professional light gray
+            .setPadding(8f)  // Professional padding
     }
     
     private fun createValueCell(text: String): Cell {
         return Cell().add(
             createHebrewParagraph(text)
-                .setFontSize(11f)
+                .setFontSize(12f)  // Increased from 11f
+                .setBold()  // Added bold for better readability
         )
             .setTextAlignment(TextAlignment.RIGHT)
             .setPadding(5f)
@@ -302,8 +452,8 @@ class PdfGenerator(
                                 // File doesn't exist, show text footer instead
                                 val footerText = "טלפון: ${content.phone} | אימייל: ${content.email} | ח.פ: ${content.businessNumber} | אתר: ${content.website}"
                                 canvas.showTextAligned(
-                                    createHebrewParagraph(footerText)
-                                        .setFontSize(8f)
+                                    createMixedDirectionParagraph(footerText)
+                                        .setFontSize(9f)  // Increased from 8f
                                         .setTextAlignment(TextAlignment.CENTER),
                                     pageSize.width / 2,
                                     30f,
@@ -315,8 +465,8 @@ class PdfGenerator(
                             // On error, show text footer
                             val footerText = "טלפון: ${content.phone} | אימייל: ${content.email} | ח.פ: ${content.businessNumber} | אתר: ${content.website}"
                             canvas.showTextAligned(
-                                createHebrewParagraph(footerText)
-                                    .setFontSize(8f)
+                                createMixedDirectionParagraph(footerText)
+                                    .setFontSize(9f)  // Increased from 8f
                                     .setTextAlignment(TextAlignment.CENTER),
                                 pageSize.width / 2,
                                 30f,
@@ -327,8 +477,8 @@ class PdfGenerator(
                         // No footer image, show text footer
                         val footerText = "טלפון: ${content.phone} | אימייל: ${content.email} | ח.פ: ${content.businessNumber} | אתר: ${content.website}"
                         canvas.showTextAligned(
-                            createHebrewParagraph(footerText)
-                                .setFontSize(8f)
+                            createMixedDirectionParagraph(footerText)
+                                .setFontSize(9f)  // Increased from 8f
                                 .setTextAlignment(TextAlignment.CENTER),
                             pageSize.width / 2,
                             30f,
@@ -337,10 +487,12 @@ class PdfGenerator(
                     }
                 }
                 
-                // Page number
+                // Page number with total pages (e.g., "עמוד 2 מתוך 10")
+                // Note: totalPages may not be accurate during rendering, but iText7 handles this correctly
+                val pageNumberText = "עמוד $pageNumber מתוך $totalPages"
                 canvas.showTextAligned(
-                    createHebrewParagraph("עמוד $pageNumber מתוך $totalPages")
-                        .setFontSize(10f)
+                    createHebrewParagraph(pageNumberText)
+                        .setFontSize(11f)  // Increased from 10f
                         .setTextAlignment(TextAlignment.CENTER),
                     pageSize.width / 2,
                     15f,
@@ -364,6 +516,10 @@ class PdfGenerator(
         android.util.Log.d("PdfGenerator", "Received dataJson parameter: $dataJson")
         android.util.Log.d("PdfGenerator", "Received dataJson size: ${dataJson.size}")
         android.util.Log.d("PdfGenerator", "Received dataJson keys: ${dataJson.keys}")
+        android.util.Log.d("PdfGenerator", "📸 Total images received: ${images.size}")
+        images.forEachIndexed { idx, img ->
+            android.util.Log.d("PdfGenerator", "  Image ${idx + 1}: sectionId=${img.sectionId}, order=${img.order}, path=${img.filePath}")
+        }
         android.util.Log.d("PdfGenerator", "=====================================")
         
         // Create PDF file
@@ -384,7 +540,8 @@ class PdfGenerator(
         val document = Document(pdfDoc, PageSize.A4)
         
         // Set margins to accommodate header/footer (top margin increased for logo space)
-        document.setMargins(120f, 36f, 50f, 36f)  // Top: 120px for logo + spacing
+        // Professional margins for court documents
+        document.setMargins(120f, 50f, 60f, 50f)  // Top: 120px for logo, increased side margins for professional look
         
         // Set RTL support
         document.setTextAlignment(TextAlignment.RIGHT)
@@ -505,8 +662,23 @@ class PdfGenerator(
             addCustomSection(document, "המלצת הקדמה", it.sections["intro_recommendations"])
         }
         
-        // Add findings and recommendations
-        addFindings(document, job, images)
+        // Add findings and recommendations (check for new hierarchical structure)
+        val gson = Gson()
+        val jobDataJsonObj = if (job.dataJson.isNotBlank() && job.dataJson != "{}") {
+            try {
+                gson.fromJson(job.dataJson, JsonObject::class.java)
+            } catch (e: Exception) {
+                null
+            }
+        } else null
+        
+        if (jobDataJsonObj?.has("categories") == true) {
+            // New hierarchical structure
+            addHierarchicalFindings(document, job, images)
+        } else if (jobDataJsonObj?.has("findings") == true) {
+            // Old flat structure (backward compatibility)
+            addFindings(document, job, images)
+        }
         
         // Add recommendations summary with price calculation
         addRecommendationsSummary(document, job)
@@ -543,14 +715,14 @@ class PdfGenerator(
         // Logo is now added to every page via HeaderFooterEventHandler
         // Minimal spacing - logo already provides top margin
         
-        // Title with "דוח" prefix - compact version without date
+        // Title with "דוח" prefix - professional court document style
         val title = createHebrewParagraph("דוח $templateName")
-            .setFontSize(22f)  // Slightly smaller for more compact look
+            .setFontSize(26f)  // Slightly larger for professional documents
             .setBold()
             .setTextAlignment(TextAlignment.CENTER)
-            .setMarginTop(5f)   // Small top margin
-            .setMarginBottom(10f)  // Reduced bottom margin
-            .setFontColor(DeviceRgb(25, 118, 210))
+            .setMarginTop(8f)   // Professional spacing
+            .setMarginBottom(15f)  // More space for professional look
+            .setFontColor(DeviceRgb(25, 118, 210))  // Modern blue color
         document.add(title)
     }
     
@@ -590,11 +762,17 @@ class PdfGenerator(
                 return
             }
             
-            // Create a professional table like in the old report
+            // Create a modern, professional table with shadow effect
+            // Outer shadow table for depth
+            val shadowTable = Table(UnitValue.createPercentArray(floatArrayOf(100f)))
+                .useAllAvailableWidth()
+                .setMarginBottom(30f)
+                .setBackgroundColor(DeviceRgb(220, 220, 220))  // Softer shadow color
+                .setPadding(5f)
+            
             val combinedTable = Table(UnitValue.createPercentArray(floatArrayOf(20f, 30f, 20f, 30f)))
                 .useAllAvailableWidth()
-                .setMarginBottom(20f)
-                .setBorder(SolidBorder(DeviceRgb(100, 100, 100), 2f))
+                .setBackgroundColor(DeviceRgb(255, 255, 255))  // White background
             
             // Get data
             val clientData = dataJson["client_details"] ?: emptyMap()
@@ -602,20 +780,22 @@ class PdfGenerator(
             val clientFields = clientSection!!.getAsJsonArray("fields")
             val generalFields = generalSection!!.getAsJsonArray("fields")
             
-            // Header row with section titles
+            // Modern header row with professional colors (balanced - not too dark, not too bright)
+            val headerColor = DeviceRgb(25, 118, 210)  // Modern blue - professional but not too dark
+            
             val clientHeaderCell = Cell(1, 2)
-                .add(createHebrewParagraph("מזמין הבדיקה").setBold().setFontSize(12f))
-                .setBackgroundColor(DeviceRgb(220, 220, 220))
+                .add(createHebrewParagraph("מזמין הבדיקה").setBold().setFontSize(14f).setFontColor(DeviceRgb(255, 255, 255)))  // Increased from 13f
+                .setBackgroundColor(headerColor)
                 .setTextAlignment(TextAlignment.CENTER)
-                .setPadding(8f)
-                .setBorder(SolidBorder(DeviceRgb(100, 100, 100), 1f))
+                .setPadding(12f)
+                .setBorder(Border.NO_BORDER)
             
             val generalHeaderCell = Cell(1, 2)
-                .add(createHebrewParagraph("מידע כללי").setBold().setFontSize(12f))
-                .setBackgroundColor(DeviceRgb(220, 220, 220))
+                .add(createHebrewParagraph("מידע כללי").setBold().setFontSize(14f).setFontColor(DeviceRgb(255, 255, 255)))  // Increased from 13f
+                .setBackgroundColor(headerColor)
                 .setTextAlignment(TextAlignment.CENTER)
-                .setPadding(8f)
-                .setBorder(SolidBorder(DeviceRgb(100, 100, 100), 1f))
+                .setPadding(12f)
+                .setBorder(Border.NO_BORDER)
             
             combinedTable.addCell(generalHeaderCell)  // Right side first (RTL)
             combinedTable.addCell(clientHeaderCell)   // Left side
@@ -662,54 +842,62 @@ class PdfGenerator(
                 val clientPair = clientFieldsList.getOrNull(i)
                 
                 // General Info cells (right side - RTL)
+                // For RTL, we need: Value first, then Label (so label appears on the right)
                 if (generalPair != null) {
                     val labelCell = Cell()
-                        .add(createHebrewParagraph(generalPair.first).setFontSize(10f).setBold())
-                        .setBackgroundColor(DeviceRgb(240, 240, 240))
-                        .setPadding(6f)
-                        .setBorder(SolidBorder(DeviceRgb(150, 150, 150), 0.5f))
+                        .add(createHebrewParagraph(generalPair.first).setFontSize(11.5f).setBold())  // Increased from 10.5f
+                        .setBackgroundColor(DeviceRgb(245, 245, 245))  // Professional light gray
+                        .setPadding(10f)  // More padding for professional look
+                        .setBorder(SolidBorder(DeviceRgb(180, 180, 180), 1f))  // Subtle professional border
                         .setTextAlignment(TextAlignment.RIGHT)
                     
                     val valueCell = Cell()
-                        .add(createHebrewParagraph(generalPair.second).setFontSize(10f))
-                        .setPadding(6f)
-                        .setBorder(SolidBorder(DeviceRgb(150, 150, 150), 0.5f))
+                        .add(createHebrewParagraph(generalPair.second).setFontSize(11.5f).setBold())  // Increased from 10.5f, added bold
+                        .setBackgroundColor(DeviceRgb(255, 255, 255))
+                        .setPadding(10f)  // More padding for professional look
+                        .setBorder(SolidBorder(DeviceRgb(180, 180, 180), 1f))  // Subtle professional border
                         .setTextAlignment(TextAlignment.RIGHT)
                     
-                    combinedTable.addCell(labelCell)
+                    // RTL: Add value first, then label (label will appear on right)
                     combinedTable.addCell(valueCell)
+                    combinedTable.addCell(labelCell)
                 } else {
-                    combinedTable.addCell(Cell().setBorder(SolidBorder(DeviceRgb(150, 150, 150), 0.5f)))
-                    combinedTable.addCell(Cell().setBorder(SolidBorder(DeviceRgb(150, 150, 150), 0.5f)))
+                    combinedTable.addCell(Cell().setBackgroundColor(DeviceRgb(255, 255, 255)).setBorder(SolidBorder(DeviceRgb(180, 180, 180), 1f)))
+                    combinedTable.addCell(Cell().setBackgroundColor(DeviceRgb(255, 255, 255)).setBorder(SolidBorder(DeviceRgb(180, 180, 180), 1f)))
                 }
                 
                 // Client Details cells (left side)
                 if (clientPair != null) {
                     val labelCell = Cell()
-                        .add(createHebrewParagraph(clientPair.first).setFontSize(10f).setBold())
-                        .setBackgroundColor(DeviceRgb(240, 240, 240))
-                        .setPadding(6f)
-                        .setBorder(SolidBorder(DeviceRgb(150, 150, 150), 0.5f))
+                        .add(createHebrewParagraph(clientPair.first).setFontSize(11.5f).setBold())  // Increased from 10.5f
+                        .setBackgroundColor(DeviceRgb(245, 245, 245))  // Professional light gray
+                        .setPadding(10f)  // More padding for professional look
+                        .setBorder(SolidBorder(DeviceRgb(180, 180, 180), 1f))  // Subtle professional border
                         .setTextAlignment(TextAlignment.RIGHT)
                     
                     val valueCell = Cell()
-                        .add(createHebrewParagraph(clientPair.second).setFontSize(10f))
-                        .setPadding(6f)
-                        .setBorder(SolidBorder(DeviceRgb(150, 150, 150), 0.5f))
+                        .add(createHebrewParagraph(clientPair.second).setFontSize(11.5f).setBold())  // Increased from 10.5f, added bold
+                        .setBackgroundColor(DeviceRgb(255, 255, 255))
+                        .setPadding(10f)  // More padding for professional look
+                        .setBorder(SolidBorder(DeviceRgb(180, 180, 180), 1f))  // Subtle professional border
                         .setTextAlignment(TextAlignment.RIGHT)
                     
-                    combinedTable.addCell(labelCell)
+                    // RTL: Add value first, then label (label will appear on right)
                     combinedTable.addCell(valueCell)
+                    combinedTable.addCell(labelCell)
                 } else {
-                    combinedTable.addCell(Cell().setBorder(SolidBorder(DeviceRgb(150, 150, 150), 0.5f)))
-                    combinedTable.addCell(Cell().setBorder(SolidBorder(DeviceRgb(150, 150, 150), 0.5f)))
+                    combinedTable.addCell(Cell().setBackgroundColor(DeviceRgb(255, 255, 255)).setBorder(SolidBorder(DeviceRgb(180, 180, 180), 1f)))
+                    combinedTable.addCell(Cell().setBackgroundColor(DeviceRgb(255, 255, 255)).setBorder(SolidBorder(DeviceRgb(180, 180, 180), 1f)))
                 }
             }
             
-            document.add(combinedTable)
+            // Wrap combined table in shadow table
+            shadowTable.addCell(Cell().add(combinedTable).setBorder(Border.NO_BORDER).setPadding(0f))
+            document.add(shadowTable)
             
             // Add general_image below the table if exists (limited to fit first page)
             val generalImages = images.filter { it.sectionId == "general_info" }
+                .sortedBy { it.order }  // Sort by order to ensure correct display sequence
             if (generalImages.isNotEmpty()) {
                 addCoverImageField(document, "תמונת שער", generalImages)
             }
@@ -846,11 +1034,21 @@ class PdfGenerator(
                     addCheckboxField(document, fieldLabel, isChecked)
                 }
                 "image" -> {
+                    android.util.Log.d("PdfGenerator", "  📸 Processing image field: $fieldId")
+                    android.util.Log.d("PdfGenerator", "    Total images available: ${images.size}")
+                    android.util.Log.d("PdfGenerator", "    Looking for sectionId: $sectionId")
+                    // Filter images by sectionId and sort by order to ensure correct display order
                     val fieldImages = images.filter { 
                         it.sectionId == sectionId
+                    }.sortedBy { it.order }  // IMPORTANT: Sort by order to display images in correct sequence
+                    android.util.Log.d("PdfGenerator", "    Found ${fieldImages.size} images for section $sectionId (sorted by order)")
+                    fieldImages.forEachIndexed { idx, img ->
+                        android.util.Log.d("PdfGenerator", "      Image ${idx + 1}: ${img.filePath} (order: ${img.order})")
                     }
                     if (fieldImages.isNotEmpty()) {
                         addImageField(document, fieldLabel, fieldImages)
+                    } else {
+                        android.util.Log.w("PdfGenerator", "    ⚠️ No images found for field $fieldId in section $sectionId")
                     }
                 }
             }
@@ -886,7 +1084,11 @@ class PdfGenerator(
     
     private fun addCoverImageField(document: Document, label: String, images: List<JobImage>) {
         // Special handling for cover image - limit to first page with border
-        images.forEach { jobImage ->
+        // Ensure images are sorted by order
+        val sortedImages = images.sortedBy { it.order }
+        android.util.Log.d("PdfGenerator", "🖼️ addCoverImageField: ${sortedImages.size} images")
+        sortedImages.forEachIndexed { index, jobImage ->
+            android.util.Log.d("PdfGenerator", "  Processing cover image ${index + 1}/${sortedImages.size}: ${jobImage.filePath} (order: ${jobImage.order})")
             try {
                 val imageFile = File(jobImage.filePath)
                 if (imageFile.exists()) {
@@ -923,7 +1125,7 @@ class PdfGenerator(
                     jobImage.caption?.let { caption ->
                         if (caption.isNotBlank()) {
                             val captionPara = createHebrewParagraph(caption)
-                                .setFontSize(10f)
+                                .setFontSize(11f)  // Increased from 10f
                                 .setItalic()
                                 .setTextAlignment(TextAlignment.CENTER)
                                 .setMarginBottom(10f)
@@ -938,6 +1140,11 @@ class PdfGenerator(
     }
     
     private fun addImageField(document: Document, label: String, images: List<JobImage>) {
+        android.util.Log.d("PdfGenerator", "🖼️ addImageField called with ${images.size} images for label: $label")
+        
+        // Ensure images are sorted by order
+        val sortedImages = images.sortedBy { it.order }
+        
         val labelPara = createHebrewParagraph(label)
             .setFontSize(12f)
             .setBold()
@@ -945,8 +1152,15 @@ class PdfGenerator(
             .setMarginBottom(5f)
         document.add(labelPara)
         
-        images.forEach { jobImage ->
+        if (sortedImages.isEmpty()) {
+            android.util.Log.w("PdfGenerator", "⚠️ No images to display for field: $label")
+            return
+        }
+        
+        var imagesAdded = 0
+        sortedImages.forEachIndexed { index, jobImage ->
             try {
+                android.util.Log.d("PdfGenerator", "  Processing image ${index + 1}/${sortedImages.size}: ${jobImage.filePath} (order: ${jobImage.order})")
                 val imageFile = File(jobImage.filePath)
                 if (imageFile.exists()) {
                     // Load and compress image with proper rotation
@@ -957,49 +1171,61 @@ class PdfGenerator(
                     val imageData = ImageDataFactory.create(compressedImage)
                     val image = Image(imageData)
                         .setMaxWidth(UnitValue.createPercentValue(80f))
+                        .setMaxHeight(UnitValue.createPointValue(500f))  // Limit max height to fit page
                         .setHorizontalAlignment(HorizontalAlignment.CENTER)
                         .setMarginBottom(10f)
+                        .setAutoScale(true)  // Auto-scale to fit page
                     
+                    // CRITICAL: Add each image individually - don't skip any
                     document.add(image)
+                    imagesAdded++
+                    android.util.Log.d("PdfGenerator", "  ✅ Successfully added image ${index + 1}/${sortedImages.size} to document")
                     
                     // Add caption if exists
                     jobImage.caption?.let { caption ->
                         if (caption.isNotBlank()) {
                             val captionPara = createHebrewParagraph(caption)
-                                .setFontSize(10f)
+                                .setFontSize(11f)  // Increased from 10f
                                 .setItalic()
                                 .setTextAlignment(TextAlignment.CENTER)
                                 .setMarginBottom(10f)
                             document.add(captionPara)
                         }
                     }
+                } else {
+                    android.util.Log.w("PdfGenerator", "  ⚠️ Image file not found: ${jobImage.filePath}")
                 }
             } catch (e: Exception) {
-                android.util.Log.e("PdfGenerator", "Error adding image: ${e.message}", e)
+                android.util.Log.e("PdfGenerator", "  ❌ Error adding image ${index + 1}: ${e.message}", e)
+                e.printStackTrace()
             }
         }
         
+        android.util.Log.d("PdfGenerator", "✅ Total images added: $imagesAdded out of ${sortedImages.size}")
         document.add(Paragraph("\n"))
     }
     
     private fun addIntroReport(document: Document, customContent: com.ashaf.instanz.data.models.TemplateCustomContent) {
         // Add company information if provided (only show if experienceText exists)
         if (customContent.experienceText.isNotEmpty()) {
+            // Start on new page for better readability
+            document.add(AreaBreak())
+            
             val sectionNumber = nextSection()
             
             // Modern section header with gradient-like effect
             val sectionTitle = createHebrewParagraph("$sectionNumber אודות החברה")
-                .setFontSize(20f)
+                .setFontSize(18f)  // Slightly smaller
                 .setBold()
                 .setFontColor(DeviceRgb(0, 102, 204))  // Modern blue
-                .setMarginTop(20f)
-                .setMarginBottom(15f)
+                .setMarginTop(15f)  // Reduced
+                .setMarginBottom(10f)  // Reduced
             document.add(sectionTitle)
             
             // Add a subtle separator line
             val separator = Table(UnitValue.createPercentArray(floatArrayOf(100f)))
                 .useAllAvailableWidth()
-                .setMarginBottom(15f)
+                .setMarginBottom(10f)  // Reduced
             separator.addCell(
                 Cell()
                     .setHeight(3f)
@@ -1012,59 +1238,123 @@ class PdfGenerator(
             android.util.Log.d("PdfGenerator", "  - experienceText length: ${customContent.experienceText.length}")
             android.util.Log.d("PdfGenerator", "  - experienceText preview: ${customContent.experienceText.take(100)}")
             
-            // Company info in a nice card with double-border shadow effect
+            // Company info in a nice card with single border
+            // Layout: Text starts from top, image at bottom left, text continues on right side of image
+            // Outer table with shadow effect
             val shadowTable = Table(UnitValue.createPercentArray(floatArrayOf(100f)))
                 .useAllAvailableWidth()
-                .setMarginBottom(20f)
+                .setMarginBottom(12f)
             
-            // Outer shadow layer
             val shadowCell = Cell()
                 .setPadding(3f)
                 .setBackgroundColor(DeviceRgb(230, 230, 230))
                 .setBorder(Border.NO_BORDER)
             
-            // Inner content card
-            val infoCard = Table(UnitValue.createPercentArray(floatArrayOf(100f)))
-                .useAllAvailableWidth()
+            // Add certificate image if exists - create table with appropriate columns
+            val contentTable = if (customContent.certificateImagePath != null) {
+                // Two columns: image on left (45%), text on right (55%) - larger image
+                Table(UnitValue.createPercentArray(floatArrayOf(45f, 55f)))
+                    .useAllAvailableWidth()
+            } else {
+                // Single column: text only
+                Table(UnitValue.createPercentArray(floatArrayOf(100f)))
+                    .useAllAvailableWidth()
+            }
             
-            val cardCell = Cell()
-                .add(createHebrewParagraph(customContent.experienceText)
-                    .setFontSize(12f)
-                    .setTextAlignment(TextAlignment.JUSTIFIED)
-                    .setMultipliedLeading(1.5f))  // Line height = 1.5x
-                .setPadding(18f)  // Extra padding for better look
-                .setBackgroundColor(DeviceRgb(248, 249, 250))  // Light gray background
-                .setBorder(SolidBorder(DeviceRgb(0, 102, 204), 1f))  // Blue border
-            
-            infoCard.addCell(cardCell)
-            shadowCell.add(infoCard)
-            shadowTable.addCell(shadowCell)
-            document.add(shadowTable)
-            
-            // Add certificate image if exists
+            // Add certificate image if exists - on left side, bottom aligned
             customContent.certificateImagePath?.let { imagePath ->
                 try {
                     val imageFile = File(imagePath)
                     if (imageFile.exists()) {
                         android.util.Log.d("PdfGenerator", "📷 Adding certificate image: $imagePath")
                         val bitmap = android.graphics.BitmapFactory.decodeFile(imageFile.absolutePath)
-                        val compressedImage = compressBitmap(bitmap, 400, 300)
+                        // Use higher resolution for better quality - larger image
+                        val compressedImage = compressBitmap(bitmap, 900, 675)
                         
                         val imageData = com.itextpdf.io.image.ImageDataFactory.create(compressedImage)
                         val image = com.itextpdf.layout.element.Image(imageData)
-                            .setMaxWidth(UnitValue.createPercentValue(60f))
+                            .setMaxWidth(UnitValue.createPercentValue(100f))  // Full width of cell
+                            .setMaxHeight(UnitValue.createPointValue(500f))  // Larger height - increased from 400f
                             .setHorizontalAlignment(HorizontalAlignment.CENTER)
-                            .setMarginBottom(15f)
+                            .setAutoScale(true)
                         
-                        document.add(image)
+                        // Image cell (left side in RTL) - bottom aligned
+                        val imageCell = Cell()
+                            .add(image)
+                            .setPadding(10f)  // More padding for larger image
+                            .setBackgroundColor(DeviceRgb(255, 255, 255))
+                            .setBorder(Border.NO_BORDER)
+                            .setVerticalAlignment(VerticalAlignment.BOTTOM)  // Image at bottom
+                        
+                        // Text cell (right side in RTL) - top aligned, text starts from top
+                        // Reduced font size and tighter spacing for more compact text
+                        val textCell = Cell()
+                            .add(createHebrewParagraph(customContent.experienceText)
+                                .setFontSize(11f)  // Reduced from 12f for more compact text
+                                .setBold()  // Added bold
+                                .setTextAlignment(TextAlignment.RIGHT)
+                                .setMultipliedLeading(1.2f))  // Tighter line spacing - reduced from 1.3f
+                            .setPadding(10f)
+                            .setBackgroundColor(DeviceRgb(255, 255, 255))
+                            .setBorder(Border.NO_BORDER)
+                            .setVerticalAlignment(VerticalAlignment.TOP)  // Text starts from top
+                        
+                        // Add cells: image first (left), then text (right) - RTL order
+                        contentTable.addCell(imageCell)
+                        contentTable.addCell(textCell)
                     } else {
                         android.util.Log.w("PdfGenerator", "⚠️ Certificate image file not found: $imagePath")
+                        // No image - just add text on full width
+                        val textCell = Cell()
+                            .add(createHebrewParagraph(customContent.experienceText)
+                                .setFontSize(12f)
+                                .setBold()
+                                .setTextAlignment(TextAlignment.RIGHT)
+                                .setMultipliedLeading(1.3f))
+                            .setPadding(10f)
+                            .setBackgroundColor(DeviceRgb(255, 255, 255))
+                            .setBorder(Border.NO_BORDER)
+                        contentTable.addCell(textCell)
                     }
                 } catch (e: Exception) {
                     android.util.Log.e("PdfGenerator", "❌ Error adding certificate image", e)
                     e.printStackTrace()
+                    // Error - just add text on full width
+                    val textCell = Cell()
+                        .add(createHebrewParagraph(customContent.experienceText)
+                            .setFontSize(12f)
+                            .setBold()
+                            .setTextAlignment(TextAlignment.RIGHT)
+                            .setMultipliedLeading(1.3f))
+                        .setPadding(10f)
+                        .setBackgroundColor(DeviceRgb(255, 255, 255))
+                        .setBorder(Border.NO_BORDER)
+                    contentTable.addCell(textCell)
                 }
+            } ?: run {
+                // No image path - just add text on full width
+                val textCell = Cell()
+                    .add(createHebrewParagraph(customContent.experienceText)
+                        .setFontSize(12f)
+                        .setBold()
+                        .setTextAlignment(TextAlignment.RIGHT)
+                        .setMultipliedLeading(1.3f))
+                    .setPadding(10f)
+                    .setBackgroundColor(DeviceRgb(255, 255, 255))
+                    .setBorder(Border.NO_BORDER)
+                contentTable.addCell(textCell)
             }
+            
+            // Add inner table to shadow cell with border
+            val innerCell = Cell()
+                .add(contentTable)
+                .setBackgroundColor(DeviceRgb(255, 255, 255))
+                .setBorder(SolidBorder(DeviceRgb(178, 223, 219), 2f))  // Single border around entire content
+                .setPadding(0f)
+            
+            shadowCell.add(innerCell)
+            shadowTable.addCell(shadowCell)
+            document.add(shadowTable)
             
             document.add(Paragraph("\n"))
         }
@@ -1094,16 +1384,21 @@ class PdfGenerator(
         val fullTitle = if (sectionNumber.isNotEmpty()) "$sectionNumber $title" else title
         
         val sectionTitle = createHebrewParagraph(fullTitle)
-            .setFontSize(18f)
+            .setFontSize(22f)  // Professional size
             .setBold()
-            .setFontColor(DeviceRgb(25, 118, 210))
-            .setMarginTop(15f)
-            .setMarginBottom(10f)
+            .setFontColor(DeviceRgb(33, 33, 33))  // Professional dark color
+            .setMarginTop(20f)  // Professional spacing
+            .setMarginBottom(15f)  // Better spacing
         document.add(sectionTitle)
         
-        items.sortedBy { it.order }.forEach { item ->
+        // Sort by order in ASCENDING order (lowest order first) for Hebrew RTL display
+        // This way items with order 0 appear first (at top), then 1, 2, etc.
+        // In Hebrew RTL, we read from right to left and top to bottom
+        // Reverse the list so that items appear in the correct order (first added = top, last added = bottom)
+        items.sortedBy { it.order }.reversed().forEach { item ->
             val para = createHebrewParagraph(item.text)
-                .setFontSize(11f)
+                .setFontSize(12f)  // Increased from 11f
+                .setBold()  // Added bold for better readability
                 .setMarginBottom(8f)
                 .setTextAlignment(TextAlignment.RIGHT)
             document.add(para)
@@ -1131,14 +1426,14 @@ class PdfGenerator(
                 return
             }
             
-            // Add findings section title
+            // Add findings section title - professional styling
             val sectionNumber = nextSection()
             val sectionTitle = createHebrewParagraph("$sectionNumber ממצאים")
-                .setFontSize(22f)
+                .setFontSize(24f)  // Professional size
                 .setBold()
-                .setFontColor(DeviceRgb(25, 118, 210))
-                .setMarginTop(20f)
-                .setMarginBottom(15f)
+                .setFontColor(DeviceRgb(33, 33, 33))  // Professional dark color
+                .setMarginTop(25f)  // More professional spacing
+                .setMarginBottom(18f)  // Better spacing
             document.add(sectionTitle)
             
             android.util.Log.d("PdfGenerator", "📋 Adding findings, total images available: ${images.size}")
@@ -1159,19 +1454,19 @@ class PdfGenerator(
                     "ממצא #$findingNumber"
                 }
                 
-                // Modern finding header with colored background
+                // Professional finding header with court-appropriate styling
                 val headerTable = Table(UnitValue.createPercentArray(floatArrayOf(100f)))
                     .useAllAvailableWidth()
-                    .setMarginTop(15f)
-                    .setMarginBottom(10f)
+                    .setMarginTop(18f)  // Professional spacing
+                    .setMarginBottom(12f)
                 
                 val headerCell = Cell()
                     .add(createHebrewParagraph(headerText)
-                        .setFontSize(16f)
+                        .setFontSize(18f)  // Professional size
                         .setBold()
                         .setFontColor(DeviceRgb(255, 255, 255)))  // White text
-                    .setBackgroundColor(DeviceRgb(0, 150, 136))  // Teal background
-                    .setPadding(12f)
+                    .setBackgroundColor(DeviceRgb(50, 50, 50))  // Professional dark gray background
+                    .setPadding(14f)  // More padding for professional look
                     .setBorder(Border.NO_BORDER)
                 
                 headerTable.addCell(headerCell)
@@ -1188,10 +1483,10 @@ class PdfGenerator(
                         .add(createHebrewParagraph("תת נושא: $category")
                             .setFontSize(11f)
                             .setBold()
-                            .setFontColor(DeviceRgb(100, 100, 100)))
-                        .setPadding(10f)  // More padding
-                        .setBackgroundColor(DeviceRgb(240, 248, 255))  // Light blue
-                        .setBorder(SolidBorder(DeviceRgb(0, 150, 136), 2f))  // Thicker border
+                            .setFontColor(DeviceRgb(60, 60, 60)))  // Professional dark gray
+                        .setPadding(12f)  // Professional padding
+                        .setBackgroundColor(DeviceRgb(250, 250, 250))  // Professional light gray
+                        .setBorder(SolidBorder(DeviceRgb(180, 180, 180), 1.5f))  // Professional subtle border
                     
                     detailsCard.addCell(detailsCell)
                     document.add(detailsCard)
@@ -1208,14 +1503,14 @@ class PdfGenerator(
                         .add(createHebrewParagraph("📋 תיאור הבעיה")
                             .setBold()
                             .setFontSize(12f)
-                            .setFontColor(DeviceRgb(50, 50, 50))
+                            .setFontColor(DeviceRgb(33, 33, 33))  // Professional dark color
                             .setMarginBottom(10f))
                         .add(createHebrewParagraph(description)
                             .setFontSize(11f)
-                            .setMultipliedLeading(1.4f))  // Line height = 1.4x
-                        .setPadding(15f)  // More padding for depth
+                            .setMultipliedLeading(1.5f))  // Better line height for readability
+                        .setPadding(16f)  // Professional padding
                         .setBackgroundColor(DeviceRgb(255, 255, 255))
-                        .setBorder(SolidBorder(DeviceRgb(180, 180, 180), 2f))  // Thicker border
+                        .setBorder(SolidBorder(DeviceRgb(200, 200, 200), 1.5f))  // Professional subtle border
                     
                     descCard.addCell(descCell)
                     document.add(descCard)
@@ -1232,14 +1527,14 @@ class PdfGenerator(
                         .add(createHebrewParagraph("⚠️ הערה חשובה")
                             .setBold()
                             .setFontSize(12f)
-                            .setFontColor(DeviceRgb(255, 152, 0))  // Orange
+                            .setFontColor(DeviceRgb(200, 100, 0))  // Professional darker orange
                             .setMarginBottom(10f))
                         .add(createHebrewParagraph(note)
                             .setFontSize(11f)
-                            .setMultipliedLeading(1.4f))  // Line height = 1.4x
-                        .setPadding(15f)  // More padding
-                        .setBackgroundColor(DeviceRgb(255, 248, 225))  // Light orange
-                        .setBorder(SolidBorder(DeviceRgb(255, 152, 0), 3f))  // Thicker border for emphasis!
+                            .setMultipliedLeading(1.5f))  // Better line height
+                        .setPadding(16f)  // Professional padding
+                        .setBackgroundColor(DeviceRgb(255, 250, 240))  // Professional light orange tint
+                        .setBorder(SolidBorder(DeviceRgb(200, 100, 0), 2f))  // Professional border
                     
                     noteCard.addCell(noteCell)
                     document.add(noteCard)
@@ -1260,7 +1555,7 @@ class PdfGenerator(
                             val recHeaderCell = Cell()
                                 .add(createHebrewParagraph("💡 המלצות לטיפול")
                                     .setBold()
-                                    .setFontSize(13f)
+                                    .setFontSize(14f)  // Increased from 13f
                                     .setFontColor(DeviceRgb(255, 255, 255)))
                                 .setBackgroundColor(DeviceRgb(255, 152, 0))  // Orange
                                 .setPadding(10f)
@@ -1281,7 +1576,7 @@ class PdfGenerator(
                                 val headerCell = Cell()
                                     .add(createHebrewParagraph(headerText)
                                         .setBold()
-                                        .setFontSize(10f)
+                                        .setFontSize(11f)  // Increased from 10f
                                         .setFontColor(DeviceRgb(255, 255, 255)))
                                     .setBackgroundColor(headerColor)
                                     .setPadding(8f)
@@ -1313,7 +1608,7 @@ class PdfGenerator(
                                 
                                 cells.forEach { cellText ->
                                     val cell = Cell()
-                                        .add(createHebrewParagraph(cellText).setFontSize(10f))
+                                        .add(createHebrewParagraph(cellText).setFontSize(11f).setBold())  // Increased from 10f, added bold
                                         .setBackgroundColor(rowColor)
                                         .setPadding(6f)
                                         .setTextAlignment(TextAlignment.CENTER)
@@ -1329,52 +1624,93 @@ class PdfGenerator(
                     }
                 }
                 
-                // Add images for this finding
+                // Add images for this finding - in a nice grid layout (2 columns)
                 val findingImages = images.filter { it.sectionId == findingId }
-                android.util.Log.d("PdfGenerator", "📸 Finding $findingId has ${findingImages.size} images")
+                    .sortedBy { it.order }  // Sort by order to ensure correct display sequence
                 
                 if (findingImages.isNotEmpty()) {
                     val imagesLabel = createHebrewParagraph("תמונות:")
                         .setBold()
+                        .setFontSize(12f)  // Increased from 11f
                         .setMarginTop(10f)
                         .setMarginBottom(8f)
                     document.add(imagesLabel)
                     
-                    findingImages.forEach { jobImage ->
+                    // Create ONE table for all images - allows natural page breaking
+                    // Fixed square size: ~300pt per image (2 columns layout)
+                    val imagesTable = Table(UnitValue.createPercentArray(floatArrayOf(50f, 50f)))
+                        .useAllAvailableWidth()
+                        .setMarginTop(10f)
+                        .setMarginBottom(10f)
+                        .setKeepTogether(false)  // CRITICAL: Allow table to break across pages
+                    
+                    // Calculate fixed square size for images (300pt = larger square images)
+                    val imageSize = 300f  // Fixed square size in points
+                    
+                    android.util.Log.d("PdfGenerator", "🖼️ Adding ${findingImages.size} images in one table with 2 columns (fixed ${imageSize}pt square)")
+                    
+                    findingImages.forEachIndexed { index, jobImage ->
                         try {
                             val imageFile = File(jobImage.filePath)
                             if (imageFile.exists()) {
-                                android.util.Log.d("PdfGenerator", "✅ Adding image: ${jobImage.filePath}")
-                                val bitmap = BitmapFactory.decodeFile(imageFile.absolutePath)
-                                val rotatedBitmap = rotateImageIfNeeded(bitmap, imageFile.absolutePath)
-                                val compressedImage = compressBitmap(rotatedBitmap, 800, 600)
+                                android.util.Log.d("PdfGenerator", "  📋 Processing image ${index + 1}/${findingImages.size}")
+                                var imageBitmap = BitmapFactory.decodeFile(jobImage.filePath)
+                                imageBitmap = rotateImageIfNeeded(imageBitmap, jobImage.filePath)
                                 
-                                val imageData = ImageDataFactory.create(compressedImage)
+                                val byteArrayOutputStream = ByteArrayOutputStream()
+                                imageBitmap.compress(Bitmap.CompressFormat.JPEG, 80, byteArrayOutputStream)
+                                val imageBytes = byteArrayOutputStream.toByteArray()
+                                
+                                val imageData = ImageDataFactory.create(imageBytes)
+                                // Fixed square size - all images will be the same size
+                                // setMaxWidth and setMaxHeight ensure image fits within square while maintaining aspect ratio
                                 val image = Image(imageData)
-                                    .setMaxWidth(UnitValue.createPercentValue(70f))
+                                    .setMaxWidth(UnitValue.createPointValue(imageSize))
+                                    .setMaxHeight(UnitValue.createPointValue(imageSize))
                                     .setHorizontalAlignment(HorizontalAlignment.CENTER)
-                                    .setMarginBottom(10f)
+                                    .setAutoScale(true)  // Scale to fit within square while maintaining aspect ratio
                                 
-                                document.add(image)
+                                // Create cell with fixed height - cell size determines image container
+                                val imageCell = Cell()
+                                    .add(image)
+                                    .setPadding(5f)
+                                    .setBorder(SolidBorder(DeviceRgb(220, 220, 220), 1f))
+                                    .setBackgroundColor(DeviceRgb(250, 250, 250))
+                                    .setVerticalAlignment(VerticalAlignment.MIDDLE)
+                                    .setHeight(UnitValue.createPointValue(imageSize + 10f))  // Fixed cell height = image size + padding
                                 
-                                // Add caption if exists
                                 jobImage.caption?.let { caption ->
                                     if (caption.isNotBlank()) {
                                         val captionPara = createHebrewParagraph(caption)
-                                            .setFontSize(10f)
+                                            .setFontSize(9f)
                                             .setItalic()
                                             .setTextAlignment(TextAlignment.CENTER)
-                                            .setMarginBottom(10f)
-                                        document.add(captionPara)
+                                            .setMarginTop(3f)
+                                        imageCell.add(captionPara)
                                     }
                                 }
-                            } else {
-                                android.util.Log.w("PdfGenerator", "⚠️ Image file not found: ${jobImage.filePath}")
+                                
+                                imagesTable.addCell(imageCell)
                             }
                         } catch (e: Exception) {
-                            android.util.Log.e("PdfGenerator", "❌ Error adding finding image", e)
+                            android.util.Log.e("PdfGenerator", "Error adding image ${index + 1}", e)
+                            e.printStackTrace()
                         }
                     }
+                    
+                    // If odd number of images, add empty cell to maintain layout
+                    if (findingImages.size % 2 == 1) {
+                        val emptyCell = Cell()
+                            .setPadding(5f)
+                            .setBorder(Border.NO_BORDER)
+                        imagesTable.addCell(emptyCell)
+                    }
+                    
+                    // Add the complete table to document
+                    // iText will break it across pages naturally, keeping each image cell intact
+                    android.util.Log.d("PdfGenerator", "✅ Adding images table with ${findingImages.size} images to document")
+                    document.add(imagesTable)
+                    android.util.Log.d("PdfGenerator", "✅ Images table added successfully")
                 }
                 
                 // Add separator between findings
@@ -1389,6 +1725,457 @@ class PdfGenerator(
         }
     }
     
+    /**
+     * NEW: Add hierarchical findings with categories
+     * Displays findings organized by categories with beautiful frames
+     */
+    private fun addHierarchicalFindings(document: Document, job: Job, images: List<JobImage>) {
+        try {
+            val gson = Gson()
+            val jobDataJson = if (job.dataJson.isNotBlank() && job.dataJson != "{}") {
+                gson.fromJson(job.dataJson, JsonObject::class.java)
+            } else {
+                return
+            }
+            
+            // Check if there are categories
+            if (!jobDataJson.has("categories")) {
+                return
+            }
+            
+            val categoriesArray = jobDataJson.getAsJsonArray("categories")
+            if (categoriesArray.size() == 0) {
+                return
+            }
+            
+            // Add findings section title
+            document.add(AreaBreak())  // Start on new page
+            val sectionNumber = nextSection()
+            val sectionTitle = createHebrewParagraph("$sectionNumber ממצאים")
+                .setFontSize(24f)
+                .setBold()
+                .setFontColor(DeviceRgb(25, 118, 210))
+                .setMarginTop(20f)
+                .setMarginBottom(20f)
+            document.add(sectionTitle)
+            
+            android.util.Log.d("PdfGenerator", "📋 Adding hierarchical findings, categories: ${categoriesArray.size()}")
+            
+            // Iterate through categories
+            categoriesArray.forEach { categoryElement ->
+                val categoryObj = categoryElement.asJsonObject
+                val categoryId = categoryObj.get("id")?.asString ?: return@forEach
+                val categoryTitle = categoryObj.get("title")?.asString ?: "קטגוריה"
+                val findingsArray = categoryObj.getAsJsonArray("findings")
+                
+                if (findingsArray == null || findingsArray.size() == 0) {
+                    return@forEach  // Skip empty categories
+                }
+                
+                // ==================================
+                // CATEGORY HEADER - Add separately for better page break handling
+                // ==================================
+                
+                // Add category header as separate table (not nested) for better page break handling
+                val categoryHeaderTable = Table(UnitValue.createPercentArray(floatArrayOf(100f)))
+                    .useAllAvailableWidth()
+                    .setMarginTop(20f)
+                    .setMarginBottom(10f)
+                    .setKeepTogether(false)  // Allow header to break if needed
+                
+                val categoryHeaderCell = Cell()
+                    .add(createHebrewParagraph(categoryTitle)
+                        .setFontSize(20f)  // Increased from 18f
+                        .setBold()
+                        .setFontColor(DeviceRgb(0, 0, 0)))  // Black text for better readability
+                    .setBackgroundColor(DeviceRgb(178, 223, 219))  // Teal background (same as disclaimer)
+                    .setPadding(15f)
+                    .setTextAlignment(TextAlignment.CENTER)
+                    .setBorder(Border.NO_BORDER)
+                    .setKeepTogether(false)  // Allow header to break if needed
+                
+                categoryHeaderTable.addCell(categoryHeaderCell)
+                document.add(categoryHeaderTable)
+                
+                // Store findings data with their images for processing separately
+                data class FindingData(
+                    val findingId: String,
+                    val findingObj: JsonObject,
+                    val findingImages: List<JobImage>,
+                    val recommendations: List<JsonObject>
+                )
+                val findingsData = mutableListOf<FindingData>()
+                
+                // Collect all findings data first
+                findingsArray.forEachIndexed { findingIndex, findingElement ->
+                    val findingObj = findingElement.asJsonObject
+                    val findingId = findingObj.get("id")?.asString ?: return@forEachIndexed
+                    android.util.Log.d("PdfGenerator", "🔍 Processing finding #${findingIndex + 1}: findingId='$findingId'")
+                    android.util.Log.d("PdfGenerator", "   All available images sectionIds: ${images.map { it.sectionId }.distinct()}")
+                    android.util.Log.d("PdfGenerator", "   Images matching this findingId: ${images.filter { it.sectionId == findingId }.size}")
+                    
+                    // Get images for this finding
+                    val findingImages = images.filter { it.sectionId == findingId }
+                        .sortedBy { it.order }  // Sort by order to ensure correct display sequence
+                    
+                    // Get recommendations for this finding
+                    val recommendationsList = mutableListOf<JsonObject>()
+                    if (findingObj.has("recommendations")) {
+                        val recommendationsArray = findingObj.getAsJsonArray("recommendations")
+                        if (recommendationsArray != null && recommendationsArray.size() > 0) {
+                            recommendationsArray.forEach { recElement ->
+                                val recObj = recElement.asJsonObject
+                                recommendationsList.add(recObj)
+                            }
+                        }
+                    }
+                    
+                    findingsData.add(FindingData(findingId, findingObj, findingImages, recommendationsList))
+                }
+                
+                // Add each finding separately to document for better page break handling
+                findingsData.forEachIndexed { findingIndex, findingData ->
+                    val findingObj = findingData.findingObj
+                    val subject = findingObj.get("subject")?.asString ?: ""
+                    val description = findingObj.get("description")?.asString ?: ""
+                    val note = findingObj.get("note")?.asString ?: ""
+                    val findingNumber = findingIndex + 1
+                    
+                    // Create finding container as separate table (not nested) for better page break handling
+                    val findingTable = Table(UnitValue.createPercentArray(floatArrayOf(100f)))
+                        .useAllAvailableWidth()
+                        .setMarginTop(if (findingIndex == 0) 0f else 10f)
+                        .setMarginBottom(10f)
+                        .setKeepTogether(false)  // Allow each finding to break across pages independently
+                    
+                    val findingContainer = Cell()
+                        .setPadding(15f)
+                        .setBackgroundColor(DeviceRgb(255, 255, 255))  // White background
+                        .setBorder(SolidBorder(DeviceRgb(220, 220, 220), 1f))
+                        .setKeepTogether(false)  // Allow cell to break across pages
+                    
+                    // Finding number and subject (header)
+                    if (subject.isNotBlank()) {
+                        val findingHeader = createHebrewParagraph("$findingNumber. $subject")
+                            .setFontSize(15f)  // Increased from 14f
+                            .setBold()
+                            .setFontColor(DeviceRgb(0, 150, 136))  // Teal
+                            .setMarginBottom(10f)
+                        findingContainer.add(findingHeader)
+                    } else {
+                        val findingHeader = createHebrewParagraph("ממצא #$findingNumber")
+                            .setFontSize(15f)  // Increased from 14f
+                            .setBold()
+                            .setFontColor(DeviceRgb(0, 150, 136))
+                            .setMarginBottom(10f)
+                        findingContainer.add(findingHeader)
+                    }
+                    
+                    // Description
+                    if (description.isNotBlank()) {
+                        val descPara = createHebrewParagraph(description)
+                            .setFontSize(12f)  // Increased from 11f
+                            .setBold()  // Added bold
+                            .setMultipliedLeading(1.5f)
+                            .setMarginBottom(10f)
+                        findingContainer.add(descPara)
+                    }
+                    
+                    // Note (highlighted)
+                    if (note.isNotBlank()) {
+                        val noteTable = Table(UnitValue.createPercentArray(floatArrayOf(100f)))
+                            .useAllAvailableWidth()
+                            .setMarginTop(8f)
+                            .setMarginBottom(8f)
+                            .setKeepTogether(false)  // Allow table to break across pages
+                        
+                        val noteCell = Cell()
+                            .add(createHebrewParagraph("⚠️ הערה")
+                                .setBold()
+                                .setFontSize(12f)  // Increased from 11f
+                                .setFontColor(DeviceRgb(230, 74, 25))  // Orange-red
+                                .setMarginBottom(5f))
+                            .add(createHebrewParagraph(note)
+                                .setFontSize(11f)  // Increased from 10f
+                                .setBold()  // Added bold
+                                .setMultipliedLeading(1.4f))
+                            .setBackgroundColor(DeviceRgb(255, 243, 224))  // Light orange
+                            .setPadding(10f)
+                            .setBorder(SolidBorder(DeviceRgb(255, 152, 0), 2f))
+                            .setKeepTogether(false)  // Allow cell to break across pages
+                        
+                        noteTable.addCell(noteCell)
+                        findingContainer.add(noteTable)
+                    }
+                    
+                    findingTable.addCell(findingContainer)
+                    document.add(findingTable)  // Add each finding separately
+                    
+                    // NOW add recommendations and images for this finding immediately after the finding
+                    val findingImages = findingData.findingImages
+                    android.util.Log.d("PdfGenerator", "  📊 Finding has ${findingData.recommendations.size} recommendations and ${findingImages.size} images")
+                    
+                    if (findingData.recommendations.isNotEmpty()) {
+                        android.util.Log.d("PdfGenerator", "  ✅ Adding images via recommendations path")
+                        // Process each recommendation (sub-topic) separately
+                        findingData.recommendations.forEachIndexed { recIndex, recObj ->
+                            val recId = recObj.get("id")?.asString ?: ""
+                            val description = recObj.get("description")?.asString ?: ""
+                            val quantity = recObj.get("quantity")?.asString ?: ""
+                            val unit = recObj.get("unit")?.asString ?: ""
+                            val pricePerUnit = recObj.get("pricePerUnit")?.asString ?: ""
+                            val totalPrice = recObj.get("totalPrice")?.asString ?: ""
+                            
+                            // Create a container for this recommendation (sub-topic)
+                            val recContainer = Cell()
+                                .setPadding(12f)
+                                .setBackgroundColor(DeviceRgb(255, 255, 255))
+                                .setBorder(SolidBorder(DeviceRgb(200, 200, 200), 1f))
+                                .setKeepTogether(false)  // Allow to break across pages
+                            
+                            // Recommendation header (sub-topic title)
+                            val recHeader = createHebrewParagraph("תת נושא ${recIndex + 1}: $description")
+                                .setBold()
+                                .setFontSize(13f)
+                                .setFontColor(DeviceRgb(0, 150, 136))  // Teal
+                                .setMarginBottom(8f)
+                            recContainer.add(recHeader)
+                            
+                            // Recommendation details (if available)
+                            if (quantity.isNotBlank() || unit.isNotBlank() || pricePerUnit.isNotBlank() || totalPrice.isNotBlank()) {
+                                val detailsText = buildString {
+                                    if (quantity.isNotBlank()) append("כמות: $quantity ")
+                                    if (unit.isNotBlank()) append("יחידה: $unit ")
+                                    if (pricePerUnit.isNotBlank()) append("מחיר יחידה: $pricePerUnit ")
+                                    if (totalPrice.isNotBlank()) append("מחיר כולל: $totalPrice")
+                                }
+                                if (detailsText.isNotBlank()) {
+                                    val detailsPara = createHebrewParagraph(detailsText)
+                                        .setFontSize(11f)
+                                        .setBold()
+                                        .setMarginBottom(8f)
+                                    recContainer.add(detailsPara)
+                                }
+                            }
+                            
+                            // Add recommendation container directly to document using a table
+                            // This allows better page break handling
+                            val recTable = Table(UnitValue.createPercentArray(floatArrayOf(100f)))
+                                .useAllAvailableWidth()
+                                .setMarginTop(10f)
+                                .setMarginBottom(0f)  // No bottom margin - images will handle spacing
+                                .setKeepTogether(false)  // Allow table to break across pages
+                            recTable.addCell(recContainer)
+                            document.add(recTable)
+                            
+                            // Add images for this recommendation
+                            // Try to find images by recId first
+                            val recImages = images.filter { it.sectionId == recId }
+                                .sortedBy { it.order }
+                            
+                            // If no images found by recId, try to divide findingImages between recommendations
+                            // Each recommendation gets its share based on order
+                            val imagesToShow = if (recImages.isNotEmpty()) {
+                                recImages
+                            } else if (findingData.recommendations.size > 1 && findingImages.isNotEmpty()) {
+                                // Divide images between recommendations
+                                val imagesPerRec = findingImages.size / findingData.recommendations.size
+                                val startIndex = recIndex * imagesPerRec
+                                val endIndex = if (recIndex == findingData.recommendations.size - 1) {
+                                    findingImages.size  // Last recommendation gets remaining images
+                                } else {
+                                    startIndex + imagesPerRec
+                                }
+                                findingImages.subList(startIndex, endIndex)
+                            } else {
+                                // Single recommendation or no division needed - show all finding images
+                                findingImages
+                            }
+                            
+                            if (imagesToShow.isNotEmpty()) {
+                                // Add images label
+                                val imagesLabel = createHebrewParagraph("תמונות:")
+                                    .setBold()
+                                    .setFontSize(12f)
+                                    .setMarginTop(5f)
+                                    .setMarginBottom(8f)
+                                document.add(imagesLabel)
+                                
+                                // Create ONE table for all images - allows natural page breaking
+                                // Fixed square size: ~200pt per image (allows ~6 images per page: 3 rows × 2 columns)
+                                val imagesTable = Table(UnitValue.createPercentArray(floatArrayOf(50f, 50f)))
+                                    .useAllAvailableWidth()
+                                    .setMarginTop(10f)
+                                    .setMarginBottom(10f)
+                                    .setKeepTogether(false)  // CRITICAL: Allow table to break across pages
+                                
+                                // Calculate fixed square size for images (200pt = ~6 images per page)
+                                val imageSize = 200f  // Fixed square size in points
+                                
+                                android.util.Log.d("PdfGenerator", "  🖼️ Adding ${imagesToShow.size} recommendation images in one table with 2 columns (fixed ${imageSize}pt square)")
+                                
+                                imagesToShow.forEachIndexed { index, jobImage ->
+                                    try {
+                                        val imageFile = File(jobImage.filePath)
+                                        if (imageFile.exists()) {
+                                            var imageBitmap = BitmapFactory.decodeFile(jobImage.filePath)
+                                            imageBitmap = rotateImageIfNeeded(imageBitmap, jobImage.filePath)
+                                            
+                                            val byteArrayOutputStream = ByteArrayOutputStream()
+                                            imageBitmap.compress(Bitmap.CompressFormat.JPEG, 80, byteArrayOutputStream)
+                                            val imageBytes = byteArrayOutputStream.toByteArray()
+                                            
+                                            val imageData = ImageDataFactory.create(imageBytes)
+                                            // Fixed square size - all images will be the same size
+                                            val image = Image(imageData)
+                                                .setWidth(UnitValue.createPointValue(imageSize))
+                                                .setHeight(UnitValue.createPointValue(imageSize))
+                                                .setHorizontalAlignment(HorizontalAlignment.CENTER)
+                                                .setObjectFit(com.itextpdf.layout.properties.ObjectFit.CONTAIN)  // Maintain aspect ratio, fit within square
+                                            
+                                            // Create cell with fixed height - cell size determines image container
+                                            val imageCell = Cell()
+                                                .add(image)
+                                                .setPadding(5f)
+                                                .setBorder(SolidBorder(DeviceRgb(220, 220, 220), 1f))
+                                                .setBackgroundColor(DeviceRgb(250, 250, 250))
+                                                .setVerticalAlignment(VerticalAlignment.MIDDLE)
+                                                .setHeight(UnitValue.createPointValue(imageSize + 10f))  // Fixed cell height = image size + padding
+                                            
+                                            jobImage.caption?.let { caption ->
+                                                if (caption.isNotBlank()) {
+                                                    val captionPara = createHebrewParagraph(caption)
+                                                        .setFontSize(9f)
+                                                        .setItalic()
+                                                        .setTextAlignment(TextAlignment.CENTER)
+                                                        .setMarginTop(3f)
+                                                    imageCell.add(captionPara)
+                                                }
+                                            }
+                                            
+                                            imagesTable.addCell(imageCell)
+                                        }
+                                    } catch (e: Exception) {
+                                        android.util.Log.e("PdfGenerator", "Error adding recommendation image ${index + 1}", e)
+                                        e.printStackTrace()
+                                    }
+                                }
+                                
+                                // If odd number of images, add empty cell to maintain layout
+                                if (imagesToShow.size % 2 == 1) {
+                                    val emptyCell = Cell()
+                                        .setPadding(5f)
+                                        .setBorder(Border.NO_BORDER)
+                                    imagesTable.addCell(emptyCell)
+                                }
+                                
+                                // Add the complete table to document
+                                // iText will break it across pages naturally, keeping each image cell intact
+                                android.util.Log.d("PdfGenerator", "  ✅ Adding recommendation images table with ${imagesToShow.size} images to document")
+                                document.add(imagesTable)
+                                android.util.Log.d("PdfGenerator", "  ✅ Recommendation images table added successfully")
+                            }
+                        }
+                    } else {
+                        android.util.Log.d("PdfGenerator", "  ⚠️ No recommendations - adding images directly")
+                        // No recommendations - add general finding images if any
+                        if (findingImages.isNotEmpty()) {
+                            android.util.Log.d("PdfGenerator", "  ✅ Found ${findingImages.size} images to add directly")
+                            // Add images label directly to document
+                            val imagesLabel = createHebrewParagraph("תמונות:")
+                                .setBold()
+                                .setFontSize(12f)  // Increased from 11f
+                                .setMarginTop(10f)
+                                .setMarginBottom(8f)
+                            document.add(imagesLabel)
+                            
+                            // Create ONE table for all images - allows natural page breaking
+                            // Fixed square size: ~200pt per image (allows ~6 images per page: 3 rows × 2 columns)
+                            val imagesTable = Table(UnitValue.createPercentArray(floatArrayOf(50f, 50f)))
+                                .useAllAvailableWidth()
+                                .setMarginTop(10f)
+                                .setMarginBottom(10f)
+                                .setKeepTogether(false)  // CRITICAL: Allow table to break across pages
+                            
+                            // Calculate fixed square size for images (200pt = ~6 images per page)
+                            val imageSize = 200f  // Fixed square size in points
+                            
+                            android.util.Log.d("PdfGenerator", "  🖼️ Adding ${findingImages.size} images in one table with 2 columns (fixed ${imageSize}pt square)")
+                            
+                            findingImages.forEachIndexed { index, jobImage ->
+                                try {
+                                    val imageFile = File(jobImage.filePath)
+                                    if (imageFile.exists()) {
+                                        android.util.Log.d("PdfGenerator", "    📋 Processing image ${index + 1}/${findingImages.size}")
+                                        var imageBitmap = BitmapFactory.decodeFile(jobImage.filePath)
+                                        imageBitmap = rotateImageIfNeeded(imageBitmap, jobImage.filePath)
+                                        
+                                        val byteArrayOutputStream = ByteArrayOutputStream()
+                                        imageBitmap.compress(Bitmap.CompressFormat.JPEG, 80, byteArrayOutputStream)
+                                        val imageBytes = byteArrayOutputStream.toByteArray()
+                                        
+                                        val imageData = ImageDataFactory.create(imageBytes)
+                                        // Fixed square size - all images will be the same size
+                                        val image = Image(imageData)
+                                            .setWidth(UnitValue.createPointValue(imageSize))
+                                            .setHeight(UnitValue.createPointValue(imageSize))
+                                            .setHorizontalAlignment(HorizontalAlignment.CENTER)
+                                            .setObjectFit(com.itextpdf.layout.properties.ObjectFit.CONTAIN)  // Maintain aspect ratio, fit within square
+                                        
+                                        // Create cell with fixed height - cell size determines image container
+                                        val imageCell = Cell()
+                                            .add(image)
+                                            .setPadding(5f)
+                                            .setBorder(SolidBorder(DeviceRgb(220, 220, 220), 1f))
+                                            .setBackgroundColor(DeviceRgb(250, 250, 250))
+                                            .setVerticalAlignment(VerticalAlignment.MIDDLE)
+                                            .setHeight(UnitValue.createPointValue(imageSize + 10f))  // Fixed cell height = image size + padding
+                                        
+                                        jobImage.caption?.let { caption ->
+                                            if (caption.isNotBlank()) {
+                                                val captionPara = createHebrewParagraph(caption)
+                                                    .setFontSize(9f)
+                                                    .setItalic()
+                                                    .setTextAlignment(TextAlignment.CENTER)
+                                                    .setMarginTop(3f)
+                                                imageCell.add(captionPara)
+                                            }
+                                        }
+                                        
+                                        imagesTable.addCell(imageCell)
+                                    }
+                                } catch (e: Exception) {
+                                    android.util.Log.e("PdfGenerator", "Error adding image ${index + 1}", e)
+                                    e.printStackTrace()
+                                }
+                            }
+                            
+                            // If odd number of images, add empty cell to maintain layout
+                            if (findingImages.size % 2 == 1) {
+                                val emptyCell = Cell()
+                                    .setPadding(5f)
+                                    .setBorder(Border.NO_BORDER)
+                                imagesTable.addCell(emptyCell)
+                            }
+                            
+                            // Add the complete table to document
+                            // iText will break it across pages naturally, keeping each image cell intact
+                            android.util.Log.d("PdfGenerator", "  ✅ Adding images table with ${findingImages.size} images to document")
+                            document.add(imagesTable)
+                            android.util.Log.d("PdfGenerator", "  ✅ Images table added successfully")
+                        }
+                    }
+                }
+            }
+            
+            document.add(Paragraph("\n"))
+            
+        } catch (e: Exception) {
+            android.util.Log.e("PdfGenerator", "Error adding hierarchical findings", e)
+            e.printStackTrace()
+        }
+    }
+    
     private fun addRecommendationsSummary(document: Document, job: Job) {
         try {
             val gson = Gson()
@@ -1398,20 +2185,45 @@ class PdfGenerator(
                 return
             }
             
-            // Check if there are findings
-            if (!jobDataJson.has("findings")) {
-                return
-            }
-            
-            val findingsArray = jobDataJson.getAsJsonArray("findings")
-            if (findingsArray.size() == 0) {
-                return
-            }
-            
-            // Collect all recommendations from all findings
+            // Collect all recommendations from all findings (support both old and new structure)
             val allRecommendations = mutableListOf<Triple<Int, String, JsonObject>>() // <findingNumber, findingSubject, recObj>
             
-            findingsArray.forEachIndexed { index, findingElement ->
+            // Check for NEW hierarchical structure first
+            if (jobDataJson.has("categories")) {
+                val categoriesArray = jobDataJson.getAsJsonArray("categories")
+                var globalFindingNumber = 1
+                
+                categoriesArray.forEach { categoryElement ->
+                    val categoryObj = categoryElement.asJsonObject
+                    val categoryTitle = categoryObj.get("title")?.asString ?: "קטגוריה"
+                    
+                    if (categoryObj.has("findings")) {
+                        val findingsArray = categoryObj.getAsJsonArray("findings")
+                        findingsArray.forEach { findingElement ->
+                            val findingObj = findingElement.asJsonObject
+                            val findingSubject = findingObj.get("subject")?.asString ?: "ממצא $globalFindingNumber"
+                            val fullSubject = "$categoryTitle - $findingSubject"
+                            
+                            if (findingObj.has("recommendations")) {
+                                val recommendationsArray = findingObj.getAsJsonArray("recommendations")
+                                recommendationsArray?.forEach { recElement ->
+                                    val recObj = recElement.asJsonObject
+                                    allRecommendations.add(Triple(globalFindingNumber, fullSubject, recObj))
+                                }
+                            }
+                            globalFindingNumber++
+                        }
+                    }
+                }
+            }
+            // Check for OLD flat structure (backward compatibility)
+            else if (jobDataJson.has("findings")) {
+                val findingsArray = jobDataJson.getAsJsonArray("findings")
+                if (findingsArray.size() == 0) {
+                    return
+                }
+                
+                findingsArray.forEachIndexed { index, findingElement ->
                 val findingId = findingElement.asString
                 val findingObj = jobDataJson.getAsJsonObject(findingId) ?: return@forEachIndexed
                 val findingSubject = findingObj.get("finding_subject")?.asString ?: "ממצא ${index + 1}"
@@ -1429,11 +2241,15 @@ class PdfGenerator(
                     }
                 }
             }
+            } // End else if (old structure)
             
             // If no recommendations, return
             if (allRecommendations.isEmpty()) {
                 return
             }
+            
+            // Start on new page for recommendations summary
+            document.add(AreaBreak())
             
             // Modern section header
             val sectionNumber = nextSection()
@@ -1447,8 +2263,8 @@ class PdfGenerator(
                     .setFontSize(18f)
                     .setBold()
                     .setFontColor(DeviceRgb(255, 255, 255)))
-                .setBackgroundColor(DeviceRgb(255, 87, 34))  // Deep orange
-                .setPadding(15f)
+                .setBackgroundColor(DeviceRgb(50, 50, 50))  // Professional dark gray
+                .setPadding(16f)  // Professional padding
                 .setBorder(Border.NO_BORDER)
             
             headerTable.addCell(headerCell)
@@ -1459,19 +2275,19 @@ class PdfGenerator(
                 .useAllAvailableWidth()
                 .setMarginBottom(15f)
             
-            // Styled table headers
-            val headerColor = DeviceRgb(52, 73, 94)  // Dark blue-gray
+            // Professional styled table headers
+            val headerColor = DeviceRgb(60, 60, 60)  // Professional dark gray
             val headers = listOf("#", "ממצא", "תיאור", "כמות", "יחידה", "מחיר יחידה", "מחיר כולל")
             headers.forEach { headerText ->
                 val cell = Cell()
                     .add(createHebrewParagraph(headerText)
                         .setBold()
-                        .setFontSize(10f)
+                        .setFontSize(11f)  // Professional size
                         .setFontColor(DeviceRgb(255, 255, 255)))
                     .setBackgroundColor(headerColor)
-                    .setPadding(10f)
+                    .setPadding(12f)  // Professional padding
                     .setTextAlignment(TextAlignment.CENTER)
-                    .setBorder(SolidBorder(DeviceRgb(255, 255, 255), 1f))
+                    .setBorder(SolidBorder(DeviceRgb(100, 100, 100), 1f))  // Professional subtle border
                 summaryTable.addHeaderCell(cell)
             }
             
@@ -1503,11 +2319,11 @@ class PdfGenerator(
                 
                 cells.forEach { cellText ->
                     val cell = Cell()
-                        .add(createHebrewParagraph(cellText).setFontSize(9f))
+                        .add(createHebrewParagraph(cellText).setFontSize(10f).setBold())  // Professional size
                         .setBackgroundColor(rowColor)
-                        .setPadding(7f)
+                        .setPadding(10f)  // Professional padding
                         .setTextAlignment(TextAlignment.CENTER)
-                        .setBorder(SolidBorder(DeviceRgb(220, 220, 220), 0.5f))
+                        .setBorder(SolidBorder(DeviceRgb(200, 200, 200), 1f))  // Professional subtle border
                     summaryTable.addCell(cell)
                 }
             }
@@ -1554,6 +2370,9 @@ class PdfGenerator(
     }
     
     private fun addFooter(document: Document, job: Job, customContent: com.ashaf.instanz.data.models.TemplateCustomContent?) {
+        // Start on new page for disclaimer
+        document.add(AreaBreak())
+        
         // Add professional disclaimer section - now editable!
         document.add(Paragraph("\n"))
         
@@ -1594,19 +2413,20 @@ class PdfGenerator(
         android.util.Log.d("PdfGenerator", "Disclaimer text length: ${disclaimerText.length}")
         
         val disclaimerPara = createHebrewParagraph(disclaimerText)
-            .setFontSize(10f)
+            .setFontSize(11f)  // Increased from 10f
+            .setBold()  // Added bold for better readability
             .setMarginBottom(20f)
         document.add(disclaimerPara)
         
         // Signature line
         val signatureLine = createHebrewParagraph("בכבוד רב,")
-            .setFontSize(11f)
+            .setFontSize(12f)  // Increased from 11f
             .setBold()
             .setMarginTop(10f)
         document.add(signatureLine)
         
         val companyName = createHebrewParagraph("אשף האינסטלציה")
-            .setFontSize(12f)
+            .setFontSize(13f)  // Increased from 12f
             .setBold()
             .setMarginBottom(20f)
         document.add(companyName)
@@ -1692,4 +2512,6 @@ class PdfGenerator(
         return outputStream.toByteArray()
     }
 }
+
+
 
