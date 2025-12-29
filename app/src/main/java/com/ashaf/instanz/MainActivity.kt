@@ -23,11 +23,15 @@ import com.ashaf.instanz.ui.di.AppContainer
 import com.ashaf.instanz.ui.di.LocalAppContainer
 import com.ashaf.instanz.ui.navigation.NavGraph
 import com.ashaf.instanz.ui.theme.WaterDamageReportsTheme
+import com.ashaf.instanz.utils.FileLogger
 import java.util.Locale
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        
+        // Initialize file logger for debugging
+        FileLogger.initialize(this)
         
         // Set Hebrew locale explicitly
         val locale = Locale("he", "IL")

@@ -77,6 +77,7 @@ fun EditorScreen(
     val template by viewModel.template.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
     val findings by viewModel.findings.collectAsState()
+    val categories by viewModel.categories.collectAsState()
     
     // Reload job data when returning to screen
     LaunchedEffect(jobId) {
@@ -208,7 +209,7 @@ fun EditorScreen(
                                         viewModel.saveChanges()
                                         kotlinx.coroutines.delay(100) // Wait for DB write
                                         android.util.Log.d("EditorScreen", "✅ Save complete, opening preview")
-                                        jobId.let(onPreviewClick)
+                                    jobId.let(onPreviewClick)
                                     }
                                 },
                                 leadingIcon = {
@@ -419,43 +420,110 @@ fun EditorScreen(
                                 }
                             }
                             2 -> {
-                                // Third tab: Dynamic findings
-                                // Add button
+                                // Third tab: Hierarchical findings with categories
+                                
+                                // Check if migration is needed
+                                if (categories.isEmpty() && findings.isNotEmpty()) {
+                                    // Show migration button
+                                    Card(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        colors = CardDefaults.cardColors(containerColor = Color(0xFFFFF9C4))
+                                    ) {
+                                        Column(
+                                            modifier = Modifier.padding(16.dp),
+                                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                                        ) {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                            ) {
+                                                Icon(
+                                                    Icons.Default.Info,
+                                                    contentDescription = null,
+                                                    tint = Color(0xFFF57C00)
+                                                )
+                                                Text(
+                                                    text = "מבנה ממצאים חדש זמין!",
+                                                    style = MaterialTheme.typography.titleMedium,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                            }
+                                            Text(
+                                                text = "יש לך ${findings.size} ממצאים במבנה הישן. לחץ כדי לשדרג למבנה היררכי חדש עם קטגוריות.",
+                                                style = MaterialTheme.typography.bodyMedium
+                                            )
                                 Button(
-                                    onClick = { viewModel.addFinding() },
+                                                onClick = { viewModel.migrateToHierarchicalStructure() },
+                                                modifier = Modifier.fillMaxWidth(),
+                                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFF57C00))
+                                            ) {
+                                                Icon(Icons.Default.Upgrade, contentDescription = null)
+                                                Spacer(modifier = Modifier.width(8.dp))
+                                                Text("שדרג למבנה חדש")
+                                            }
+                                        }
+                                    }
+                                    Spacer(modifier = Modifier.height(16.dp))
+                                }
+                                
+                                // Add Category button
+                                Button(
+                                    onClick = { viewModel.addCategory() },
                                     modifier = Modifier.fillMaxWidth(),
                                     colors = ButtonDefaults.buttonColors(containerColor = Accent)
                                 ) {
                                     Icon(Icons.Default.Add, contentDescription = null)
                                     Spacer(modifier = Modifier.width(8.dp))
-                                    Text("הוסף", style = MaterialTheme.typography.titleMedium)
+                                    Text("הוסף קטגוריה", style = MaterialTheme.typography.titleMedium)
                                 }
                                 
                                 Spacer(modifier = Modifier.height(16.dp))
                                 
-                                // Display findings
-                                findings.forEachIndexed { index, findingId ->
-                                    FindingCard(
-                                        findingId = findingId,
-                                        findingNumber = index + 1,
+                                // Display hierarchical categories
+                                if (categories.isNotEmpty()) {
+                                    categories.forEach { category ->
+                                        CategoryCard(
+                                            category = category,
                                         viewModel = viewModel,
                                         imageViewModel = imageViewModel,
                                         jobId = jobId,
-                                        onCameraClick = onCameraClick,
-                                        onDelete = { viewModel.deleteFinding(findingId) }
-                                    )
-                                }
-                                
-                                if (findings.isEmpty()) {
+                                            onCameraClick = onCameraClick
+                                        )
+                                        Spacer(modifier = Modifier.height(12.dp))
+                                    }
+                                } else if (findings.isEmpty()) {
+                                    // Empty state
+                                    Card(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        colors = CardDefaults.cardColors(containerColor = Color(0xFFE3F2FD))
+                                    ) {
+                                        Column(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(32.dp),
+                                            horizontalAlignment = Alignment.CenterHorizontally,
+                                            verticalArrangement = Arrangement.spacedBy(16.dp)
+                                        ) {
+                                            Icon(
+                                                Icons.Default.Assessment,
+                                                contentDescription = null,
+                                                tint = Primary,
+                                                modifier = Modifier.size(64.dp)
+                                            )
                                     Text(
-                                        text = "אין כרגע ממצאים, ניתן להוסיף פרטים על ידי לחיצה על כפתור הוסף",
+                                                text = "אין כרגע קטגוריות",
+                                                style = MaterialTheme.typography.titleLarge,
+                                                fontWeight = FontWeight.Bold,
+                                                color = Primary
+                                            )
+                                            Text(
+                                                text = "לחץ על 'הוסף קטגוריה' כדי להתחיל להוסיף ממצאים מסודרים בקטגוריות",
                                         style = MaterialTheme.typography.bodyMedium,
                                         color = TextSecondary,
-                                        textAlign = TextAlign.Center,
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(32.dp)
+                                                textAlign = TextAlign.Center
                                     )
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -667,10 +735,18 @@ fun SectionCardFromJson(
             
             Divider()
             
-            // Track if we've shown the address header
-            var addressHeaderShown = false
-            
-            fieldsJson?.forEachIndexed { index, fieldJsonElement ->
+            // Special handling for invoice_items section - show dynamic items table
+            if (sectionId == "invoice_items") {
+                InvoiceItemsTable(
+                    sectionId = sectionId,
+                    viewModel = viewModel,
+                    onValueChanged = onValueChanged
+                )
+            } else {
+                // Track if we've shown the address header
+                var addressHeaderShown = false
+                
+                fieldsJson?.forEachIndexed { index, fieldJsonElement ->
                 val fieldObj = fieldJsonElement.asJsonObject
                 val fieldType = fieldObj.get("type")?.asString ?: ""
                 val fieldId = fieldObj.get("id")?.asString ?: ""
@@ -757,8 +833,377 @@ fun SectionCardFromJson(
                     }
                 }
             }
+            }
         }
     }
+}
+
+// Invoice Items Table Component
+@Composable
+fun InvoiceItemsTable(
+    sectionId: String,
+    viewModel: EditorViewModel,
+    onValueChanged: () -> Unit = {}
+) {
+    val job by viewModel.job.collectAsState()
+    
+    // Load existing items from dataJson
+    val items = remember(job?.dataJson) {
+        loadInvoiceItems(viewModel, sectionId)
+    }
+    
+    var invoiceItems by remember { mutableStateOf(items) }
+    
+    // Recalculate totals when items change
+    LaunchedEffect(invoiceItems) {
+        calculateInvoiceTotals(invoiceItems, viewModel)
+        onValueChanged()
+    }
+    
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        // Header with Add button
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "פריטים/שירותים",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = Accent
+            )
+            
+            Button(
+                onClick = {
+                    invoiceItems = invoiceItems + InvoiceItem(
+                        index = invoiceItems.size + 1,
+                        description = "",
+                        quantity = 1.0,
+                        unit = "",
+                        unitPrice = 0.0,
+                        total = 0.0
+                    )
+                },
+                colors = ButtonDefaults.buttonColors(containerColor = Accent)
+            ) {
+                Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(modifier = Modifier.width(4.dp))
+                Text("הוסף פריט")
+            }
+        }
+        
+        // Items table
+        if (invoiceItems.isEmpty()) {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = Color(0xFFF5F5F5))
+            ) {
+                Text(
+                    text = "לחץ על 'הוסף פריט' כדי להתחיל",
+                    modifier = Modifier.padding(16.dp),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = TextSecondary,
+                    textAlign = TextAlign.Center
+                )
+            }
+        } else {
+            // Table header
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(Primary)
+                    .padding(12.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text(
+                    text = "#",
+                    modifier = Modifier.width(30.dp),
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center
+                )
+                Text(
+                    text = "תיאור",
+                    modifier = Modifier.weight(2f),
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    text = "כמות",
+                    modifier = Modifier.weight(0.8f),
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center
+                )
+                Text(
+                    text = "יחידה",
+                    modifier = Modifier.weight(0.8f),
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center
+                )
+                Text(
+                    text = "מחיר יחידה",
+                    modifier = Modifier.weight(1f),
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center
+                )
+                Text(
+                    text = "סה\"כ",
+                    modifier = Modifier.weight(1f),
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center
+                )
+                Spacer(modifier = Modifier.width(40.dp)) // Space for delete button
+            }
+            
+            // Items rows
+            invoiceItems.forEachIndexed { index, item ->
+                InvoiceItemRow(
+                    item = item,
+                    index = index,
+                    onItemChange = { updatedItem ->
+                        invoiceItems = invoiceItems.toMutableList().apply {
+                            this[index] = updatedItem
+                        }
+                        saveInvoiceItem(sectionId, index, updatedItem, viewModel)
+                    },
+                    onDelete = {
+                        invoiceItems = invoiceItems.toMutableList().apply {
+                            removeAt(index)
+                        }
+                        deleteInvoiceItem(sectionId, index, viewModel)
+                    }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun InvoiceItemRow(
+    item: InvoiceItem,
+    index: Int,
+    onItemChange: (InvoiceItem) -> Unit,
+    onDelete: () -> Unit
+) {
+    var description by remember(item.description) { mutableStateOf(item.description) }
+    var quantity by remember(item.quantity) { mutableStateOf(item.quantity.toString()) }
+    var unit by remember(item.unit) { mutableStateOf(item.unit) }
+    var unitPrice by remember(item.unitPrice) { mutableStateOf(item.unitPrice.toString()) }
+    
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = if (index % 2 == 0) Color.White else Color(0xFFF9F9F9)
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // Index
+            Text(
+                text = "${index + 1}",
+                modifier = Modifier.width(30.dp),
+                textAlign = TextAlign.Center,
+                fontWeight = FontWeight.Bold
+            )
+            
+            // Description
+            OutlinedTextField(
+                value = description,
+                onValueChange = { newValue ->
+                    description = newValue
+                    val total = quantity.toDoubleOrNull()?.let { q ->
+                        unitPrice.toDoubleOrNull()?.let { p -> q * p } ?: 0.0
+                    } ?: 0.0
+                    onItemChange(item.copy(description = newValue, total = total))
+                },
+                modifier = Modifier.weight(2f),
+                placeholder = { Text("תיאור הפריט") },
+                singleLine = true,
+                textStyle = MaterialTheme.typography.bodyMedium.copy(
+                    textDirection = TextDirection.ContentOrRtl
+                )
+            )
+            
+            // Quantity
+            OutlinedTextField(
+                value = quantity,
+                onValueChange = { newValue ->
+                    if (newValue.isEmpty() || newValue.toDoubleOrNull() != null) {
+                        quantity = newValue
+                        val q = newValue.toDoubleOrNull() ?: 0.0
+                        val p = unitPrice.toDoubleOrNull() ?: 0.0
+                        val total = q * p
+                        onItemChange(item.copy(quantity = q, total = total))
+                    }
+                },
+                modifier = Modifier.weight(0.8f),
+                placeholder = { Text("1") },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                textStyle = MaterialTheme.typography.bodyMedium.copy(
+                    textAlign = TextAlign.Center,
+                    textDirection = TextDirection.Ltr
+                )
+            )
+            
+            // Unit
+            OutlinedTextField(
+                value = unit,
+                onValueChange = { newValue ->
+                    unit = newValue
+                    onItemChange(item.copy(unit = newValue))
+                },
+                modifier = Modifier.weight(0.8f),
+                placeholder = { Text("יח'") },
+                singleLine = true,
+                textStyle = MaterialTheme.typography.bodyMedium.copy(
+                    textAlign = TextAlign.Center,
+                    textDirection = TextDirection.ContentOrRtl
+                )
+            )
+            
+            // Unit Price
+            OutlinedTextField(
+                value = unitPrice,
+                onValueChange = { newValue ->
+                    if (newValue.isEmpty() || newValue.toDoubleOrNull() != null) {
+                        unitPrice = newValue
+                        val q = quantity.toDoubleOrNull() ?: 0.0
+                        val p = newValue.toDoubleOrNull() ?: 0.0
+                        val total = q * p
+                        onItemChange(item.copy(unitPrice = p, total = total))
+                    }
+                },
+                modifier = Modifier.weight(1f),
+                placeholder = { Text("0.00") },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                textStyle = MaterialTheme.typography.bodyMedium.copy(
+                    textAlign = TextAlign.Center,
+                    textDirection = TextDirection.Ltr
+                )
+            )
+            
+            // Total (read-only)
+            Text(
+                text = String.format("%.2f ₪", item.total),
+                modifier = Modifier.weight(1f),
+                textAlign = TextAlign.Center,
+                fontWeight = FontWeight.Bold,
+                color = Primary
+            )
+            
+            // Delete button
+            IconButton(
+                onClick = onDelete,
+                modifier = Modifier.size(40.dp)
+            ) {
+                Icon(
+                    Icons.Default.Delete,
+                    contentDescription = "מחק",
+                    tint = Color(0xFFD32F2F)
+                )
+            }
+        }
+    }
+}
+
+// Data class for invoice item
+data class InvoiceItem(
+    val index: Int,
+    val description: String,
+    val quantity: Double,
+    val unit: String,
+    val unitPrice: Double,
+    val total: Double
+)
+
+// Helper functions
+private fun loadInvoiceItems(viewModel: EditorViewModel, sectionId: String): List<InvoiceItem> {
+    val items = mutableListOf<InvoiceItem>()
+    
+    for (i in 1..50) { // Support up to 50 items
+        val description = viewModel.getFieldValue(sectionId, "item_${i}_description")
+        if (description.isEmpty()) continue
+        
+        val quantity = viewModel.getFieldValue(sectionId, "item_${i}_quantity").toDoubleOrNull() ?: 1.0
+        val unit = viewModel.getFieldValue(sectionId, "item_${i}_unit")
+        val unitPrice = viewModel.getFieldValue(sectionId, "item_${i}_unit_price").toDoubleOrNull() ?: 0.0
+        val total = quantity * unitPrice
+        
+        items.add(InvoiceItem(i, description, quantity, unit, unitPrice, total))
+    }
+    
+    return items
+}
+
+private fun saveInvoiceItem(
+    sectionId: String,
+    index: Int,
+    item: InvoiceItem,
+    viewModel: EditorViewModel
+) {
+    viewModel.updateFieldValue(sectionId, "item_${index + 1}_description", item.description)
+    viewModel.updateFieldValue(sectionId, "item_${index + 1}_quantity", item.quantity.toString())
+    viewModel.updateFieldValue(sectionId, "item_${index + 1}_unit", item.unit)
+    viewModel.updateFieldValue(sectionId, "item_${index + 1}_unit_price", item.unitPrice.toString())
+    viewModel.updateFieldValue(sectionId, "item_${index + 1}_total", item.total.toString())
+}
+
+private fun deleteInvoiceItem(
+    sectionId: String,
+    index: Int,
+    viewModel: EditorViewModel
+) {
+    // Shift all items after deleted one
+    for (i in index + 1..50) {
+        val nextDescription = viewModel.getFieldValue(sectionId, "item_${i + 1}_description")
+        val nextQuantity = viewModel.getFieldValue(sectionId, "item_${i + 1}_quantity")
+        val nextUnit = viewModel.getFieldValue(sectionId, "item_${i + 1}_unit")
+        val nextUnitPrice = viewModel.getFieldValue(sectionId, "item_${i + 1}_unit_price")
+        val nextTotal = viewModel.getFieldValue(sectionId, "item_${i + 1}_total")
+        
+        viewModel.updateFieldValue(sectionId, "item_${i}_description", nextDescription)
+        viewModel.updateFieldValue(sectionId, "item_${i}_quantity", nextQuantity)
+        viewModel.updateFieldValue(sectionId, "item_${i}_unit", nextUnit)
+        viewModel.updateFieldValue(sectionId, "item_${i}_unit_price", nextUnitPrice)
+        viewModel.updateFieldValue(sectionId, "item_${i}_total", nextTotal)
+    }
+    
+    // Clear last item
+    viewModel.updateFieldValue(sectionId, "item_51_description", "")
+    viewModel.updateFieldValue(sectionId, "item_51_quantity", "")
+    viewModel.updateFieldValue(sectionId, "item_51_unit", "")
+    viewModel.updateFieldValue(sectionId, "item_51_unit_price", "")
+    viewModel.updateFieldValue(sectionId, "item_51_total", "")
+}
+
+private fun calculateInvoiceTotals(items: List<InvoiceItem>, viewModel: EditorViewModel) {
+    val subtotal = items.sumOf { it.total }
+    val vatPercent = 18.0 // Default VAT
+    val vatAmount = subtotal * vatPercent / 100.0
+    val totalWithVat = subtotal + vatAmount
+    
+    viewModel.updateFieldValue("pricing_summary", "subtotal", subtotal.toString())
+    viewModel.updateFieldValue("pricing_summary", "vat_rate", vatPercent.toString())
+    viewModel.updateFieldValue("pricing_summary", "vat_amount", vatAmount.toString())
+    viewModel.updateFieldValue("pricing_summary", "total_with_vat", totalWithVat.toString())
 }
 
 @Composable
@@ -1382,12 +1827,12 @@ fun FindingCard(
                         )
                     }
                     Column {
-                        Text(
-                            text = "ממצא #$findingNumber",
+                Text(
+                    text = "ממצא #$findingNumber",
                             style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = Primary
-                        )
+                    fontWeight = FontWeight.Bold,
+                    color = Primary
+                )
                         if (!isExpanded && subjectValue.isNotBlank()) {
                             Text(
                                 text = subjectValue,
@@ -1428,18 +1873,18 @@ fun FindingCard(
                         onClick = onDelete,
                         modifier = Modifier.size(32.dp)
                     ) {
-                        Icon(
-                            Icons.Default.Delete,
-                            contentDescription = "מחק ממצא",
+                    Icon(
+                        Icons.Default.Delete,
+                        contentDescription = "מחק ממצא",
                             tint = MaterialTheme.colorScheme.error,
                             modifier = Modifier.size(20.dp)
-                        )
+                    )
                     }
                 }
             }
             
             if (isExpanded) {
-                Divider()
+            Divider()
             
             // Subject field
             val job by viewModel.job.collectAsState()
@@ -1929,6 +2374,880 @@ fun FindingCard(
             },
             confirmButton = {
                 TextButton(onClick = { showImageSourceDialog = false }) {
+                    Text("ביטול")
+                }
+            }
+        )
+    }
+}
+
+/**
+ * CategoryCard - Collapsible card for a finding category
+ * Displays category title, controls, and nested findings
+ */
+@Composable
+fun CategoryCard(
+    category: com.ashaf.instanz.ui.viewmodel.FindingCategory,
+    viewModel: EditorViewModel,
+    imageViewModel: ImageViewModel,
+    jobId: Long,
+    onCameraClick: (Long, String, String) -> Unit
+) {
+    var isExpanded by remember { mutableStateOf(true) }
+    var isEditingTitle by remember { mutableStateOf(false) }
+    var titleText by remember(category.title) { mutableStateOf(category.title) }
+    var showDeleteDialog by remember { mutableStateOf(false) }
+    
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .border(2.dp, Primary.copy(alpha = 0.3f), RoundedCornerShape(16.dp)),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = Color(0xFFF8F9FA)
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp)
+        ) {
+            // Category Header
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    IconButton(onClick = { isExpanded = !isExpanded }) {
+                        Icon(
+                            if (isExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                            contentDescription = if (isExpanded) "כווץ" else "הרחב",
+                            tint = Primary,
+                            modifier = Modifier.size(28.dp)
+                        )
+                    }
+                    
+                    if (isEditingTitle) {
+                        OutlinedTextField(
+                            value = titleText,
+                            onValueChange = { titleText = it },
+                            modifier = Modifier.weight(1f),
+                            textStyle = MaterialTheme.typography.titleLarge.copy(
+                                fontWeight = FontWeight.Bold,
+                                color = Primary
+                            ),
+                            singleLine = true,
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = Primary,
+                                unfocusedBorderColor = Primary.copy(alpha = 0.5f)
+                            )
+                        )
+                        IconButton(onClick = {
+                            viewModel.updateCategoryTitle(category.id, titleText)
+                            isEditingTitle = false
+                        }) {
+                            Icon(Icons.Default.Check, "שמור", tint = Accent)
+                        }
+                    } else {
+                        Text(
+                            text = titleText,
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = Primary,
+                            modifier = Modifier
+                                .weight(1f)
+                                .clickable { isEditingTitle = true }
+                        )
+                        IconButton(onClick = { isEditingTitle = true }) {
+                            Icon(
+                                Icons.Default.Edit,
+                                "ערוך כותרת",
+                                tint = Primary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                    }
+                }
+                
+                // Category Controls
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(2.dp)
+                ) {
+                    IconButton(
+                        onClick = { viewModel.moveCategoryUp(category.id) },
+                        modifier = Modifier.size(36.dp)
+                    ) {
+                        Icon(Icons.Default.ArrowUpward, "הזז למעלה", tint = Primary, modifier = Modifier.size(20.dp))
+                    }
+                    IconButton(
+                        onClick = { viewModel.moveCategoryDown(category.id) },
+                        modifier = Modifier.size(36.dp)
+                    ) {
+                        Icon(Icons.Default.ArrowDownward, "הזז למטה", tint = Primary, modifier = Modifier.size(20.dp))
+                    }
+                    IconButton(
+                        onClick = { showDeleteDialog = true },
+                        modifier = Modifier.size(36.dp)
+                    ) {
+                        Icon(Icons.Default.Delete, "מחק קטגוריה", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(20.dp))
+                    }
+                }
+            }
+            
+            // Findings count badge
+            if (!isExpanded) {
+                Text(
+                    text = "${category.findings.size} ממצאים",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextSecondary,
+                    modifier = Modifier.padding(start = 48.dp)
+                )
+            }
+            
+            if (isExpanded) {
+                Divider(modifier = Modifier.padding(vertical = 12.dp))
+                
+                // Add Finding button
+                Button(
+                    onClick = { viewModel.addFindingToCategory(category.id) },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(containerColor = Secondary)
+                ) {
+                    Icon(Icons.Default.Add, contentDescription = null)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("הוסף ממצא לקטגוריה זו")
+                }
+                
+                Spacer(modifier = Modifier.height(12.dp))
+                
+                // Display nested findings
+                if (category.findings.isNotEmpty()) {
+                    category.findings.forEachIndexed { index, finding ->
+                        HierarchicalFindingCard(
+                            categoryId = category.id,
+                            finding = finding,
+                            findingNumber = index + 1,
+                            viewModel = viewModel,
+                            imageViewModel = imageViewModel,
+                            jobId = jobId,
+                            onCameraClick = onCameraClick
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                    }
+                } else {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFFE8F5E9))
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(24.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Icon(
+                                Icons.Default.Info,
+                                contentDescription = null,
+                                tint = Secondary,
+                                modifier = Modifier.size(48.dp)
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                text = "אין ממצאים בקטגוריה זו",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = TextSecondary,
+                                textAlign = TextAlign.Center
+                            )
+                        }
+                    }
+                }
+                
+                // Collapse button at bottom
+                Divider(modifier = Modifier.padding(vertical = 12.dp))
+                
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { isExpanded = false }
+                        .padding(vertical = 8.dp),
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        Icons.Default.ExpandLess,
+                        contentDescription = "כווץ",
+                        tint = Primary,
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "כווץ קטגוריה",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Primary,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+            }
+        }
+    }
+    
+    // Delete confirmation dialog
+    if (showDeleteDialog) {
+        AlertDialog(
+            onDismissRequest = { showDeleteDialog = false },
+            title = { Text("מחיקת קטגוריה", fontWeight = FontWeight.Bold) },
+            text = { Text("האם אתה בטוח שברצונך למחוק את הקטגוריה '${category.title}' ואת כל הממצאים שבה? פעולה זו לא ניתנת לשחזור.") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.deleteCategory(category.id)
+                        showDeleteDialog = false
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                ) {
+                    Text("מחק")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteDialog = false }) {
+                    Text("ביטול")
+                }
+            }
+        )
+    }
+}
+
+/**
+ * HierarchicalFindingCard - Simplified finding card within a category
+ * Displays finding details with minimal nesting
+ */
+@Composable
+fun HierarchicalFindingCard(
+    categoryId: String,
+    finding: com.ashaf.instanz.ui.viewmodel.FindingItem,
+    findingNumber: Int,
+    viewModel: EditorViewModel,
+    imageViewModel: ImageViewModel,
+    jobId: Long,
+    onCameraClick: (Long, String, String) -> Unit
+) {
+    var isExpanded by remember { mutableStateOf(false) }
+    var showImageSourceDialog by remember { mutableStateOf(false) }
+    var showDeleteDialog by remember { mutableStateOf(false) }
+    val context = androidx.compose.ui.platform.LocalContext.current
+    
+    var subject by remember(finding.subject) { mutableStateOf(finding.subject) }
+    var description by remember(finding.description) { mutableStateOf(finding.description) }
+    var note by remember(finding.note) { mutableStateOf(finding.note) }
+    
+    // Gallery launcher for picking images
+    val galleryLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.GetContent()
+    ) { uri: android.net.Uri? ->
+        uri?.let { selectedUri ->
+            try {
+                val contentResolver = context.contentResolver
+                val inputStream = contentResolver.openInputStream(selectedUri)
+                
+                if (inputStream != null) {
+                    val fileName = "finding_${finding.id}_${System.currentTimeMillis()}.jpg"
+                    val outputFile = File(context.filesDir, fileName)
+                    
+                    inputStream.use { input ->
+                        outputFile.outputStream().use { output ->
+                            input.copyTo(output)
+                        }
+                    }
+                    
+                    imageViewModel.addImageFromGallery(
+                        sectionId = finding.id,
+                        filePath = outputFile.absolutePath,
+                        caption = ""
+                    )
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("HierarchicalFindingCard", "Error adding image from gallery", e)
+            }
+        }
+    }
+    
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .border(1.dp, Color(0xFFE0E0E0), RoundedCornerShape(12.dp)),
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp)
+        ) {
+            // Header
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { isExpanded = !isExpanded },
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Icon(
+                        if (isExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                        contentDescription = if (isExpanded) "כווץ" else "הרחב",
+                        tint = Secondary,
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Column {
+                        Text(
+                            text = "$findingNumber.",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = Secondary
+                        )
+                        if (!isExpanded && subject.isNotBlank()) {
+                            Text(
+                                text = subject,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = TextSecondary,
+                                maxLines = 1
+                            )
+                        }
+                    }
+                }
+                
+                Row {
+                    IconButton(onClick = { viewModel.moveFindingInCategory(categoryId, finding.id, -1) }) {
+                        Icon(Icons.Default.ArrowUpward, "הזז למעלה", tint = Secondary, modifier = Modifier.size(20.dp))
+                    }
+                    IconButton(onClick = { viewModel.moveFindingInCategory(categoryId, finding.id, 1) }) {
+                        Icon(Icons.Default.ArrowDownward, "הזז למטה", tint = Secondary, modifier = Modifier.size(20.dp))
+                    }
+                    IconButton(onClick = { showDeleteDialog = true }) {
+                        Icon(Icons.Default.Delete, "מחק", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(20.dp))
+                    }
+                }
+            }
+            
+            if (isExpanded) {
+                Divider(modifier = Modifier.padding(vertical = 8.dp))
+                
+                // Subject
+                OutlinedTextField(
+                    value = subject,
+                    onValueChange = {
+                        subject = it
+                        viewModel.updateFindingInCategory(categoryId, finding.id, "subject", it)
+                    },
+                    label = { Text("נושא") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = Secondary,
+                        focusedLabelColor = Secondary
+                    )
+                )
+                
+                Spacer(modifier = Modifier.height(8.dp))
+                
+                // Description
+                OutlinedTextField(
+                    value = description,
+                    onValueChange = {
+                        description = it
+                        viewModel.updateFindingInCategory(categoryId, finding.id, "description", it)
+                    },
+                    label = { Text("תיאור") },
+                    modifier = Modifier.fillMaxWidth(),
+                    minLines = 3,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = Secondary,
+                        focusedLabelColor = Secondary
+                    )
+                )
+                
+                Spacer(modifier = Modifier.height(8.dp))
+                
+                // Note
+                OutlinedTextField(
+                    value = note,
+                    onValueChange = {
+                        note = it
+                        viewModel.updateFindingInCategory(categoryId, finding.id, "note", it)
+                    },
+                    label = { Text("הערה") },
+                    modifier = Modifier.fillMaxWidth(),
+                    minLines = 2,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = Secondary,
+                        focusedLabelColor = Secondary
+                    )
+                )
+                
+                Spacer(modifier = Modifier.height(12.dp))
+                
+                // Images section
+                val images by imageViewModel.images.collectAsState()
+                val findingImages = remember(images, finding.id) {
+                    images.filter { it.sectionId == finding.id }
+                }
+                
+                Text(
+                    text = "תמונות",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = Secondary
+                )
+                
+                Spacer(modifier = Modifier.height(8.dp))
+                
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    item {
+                        Card(
+                            modifier = Modifier
+                                .size(100.dp)
+                                .clickable { showImageSourceDialog = true },
+                            colors = CardDefaults.cardColors(containerColor = Color(0xFFF0F0F0)),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier.fillMaxSize(),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    Icons.Default.AddPhotoAlternate,
+                                    contentDescription = "הוסף תמונה",
+                                    tint = Secondary,
+                                    modifier = Modifier.size(40.dp)
+                                )
+                            }
+                        }
+                    }
+                    
+                    items(findingImages) { image ->
+                        Card(
+                            modifier = Modifier.size(100.dp),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Box {
+                                AsyncImage(
+                                    model = File(image.filePath),
+                                    contentDescription = image.caption ?: "תמונה",
+                                    modifier = Modifier.fillMaxSize(),
+                                    contentScale = ContentScale.Crop
+                                )
+                                IconButton(
+                                    onClick = { imageViewModel.deleteImage(image) },
+                                    modifier = Modifier
+                                        .align(Alignment.TopEnd)
+                                        .size(28.dp)
+                                        .background(Color.Black.copy(alpha = 0.5f), RoundedCornerShape(14.dp))
+                                ) {
+                                    Icon(
+                                        Icons.Default.Close,
+                                        contentDescription = "מחק",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                Spacer(modifier = Modifier.height(16.dp))
+                
+                // ===================================
+                // Recommendations section
+                // ===================================
+                Text(
+                    text = "המלצות",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = Secondary
+                )
+                
+                Spacer(modifier = Modifier.height(8.dp))
+                
+                // Get recommendations from hierarchical structure
+                val recommendationsJson = remember(finding.id) {
+                    // Try to load from job.dataJson -> categories -> [categoryId] -> findings -> [findingId] -> recommendations
+                    try {
+                        val job = viewModel.job.value
+                        if (job != null && job.dataJson.isNotBlank()) {
+                            val gson = Gson()
+                            val jobDataJson = gson.fromJson(job.dataJson, JsonObject::class.java)
+                            
+                            if (jobDataJson.has("categories")) {
+                                val categoriesArray = jobDataJson.getAsJsonArray("categories")
+                                categoriesArray.forEach { categoryElement ->
+                                    val categoryObj = categoryElement.asJsonObject
+                                    if (categoryObj.get("id")?.asString == categoryId) {
+                                        if (categoryObj.has("findings")) {
+                                            val findingsArray = categoryObj.getAsJsonArray("findings")
+                                            findingsArray.forEach { findingElement ->
+                                                val findingObj = findingElement.asJsonObject
+                                                if (findingObj.get("id")?.asString == finding.id) {
+                                                    if (findingObj.has("recommendations")) {
+                                                        return@remember findingObj.getAsJsonArray("recommendations")
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        JsonArray()
+                    } catch (e: Exception) {
+                        android.util.Log.e("HierarchicalFindingCard", "Error loading recommendations: ${e.message}", e)
+                        JsonArray()
+                    }
+                }
+                
+                var recommendations by remember(recommendationsJson) {
+                    mutableStateOf(recommendationsJson)
+                }
+                
+                // Update recommendations helper function
+                fun updateRecommendations(newRecommendations: JsonArray) {
+                    try {
+                        val job = viewModel.job.value ?: return
+                        val gson = Gson()
+                        val jobDataJson = gson.fromJson(job.dataJson, JsonObject::class.java)
+                        
+                        if (jobDataJson.has("categories")) {
+                            val categoriesArray = jobDataJson.getAsJsonArray("categories")
+                            categoriesArray.forEach { categoryElement ->
+                                val categoryObj = categoryElement.asJsonObject
+                                if (categoryObj.get("id")?.asString == categoryId) {
+                                    if (categoryObj.has("findings")) {
+                                        val findingsArray = categoryObj.getAsJsonArray("findings")
+                                        findingsArray.forEach { findingElement ->
+                                            val findingObj = findingElement.asJsonObject
+                                            if (findingObj.get("id")?.asString == finding.id) {
+                                                findingObj.add("recommendations", newRecommendations)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            
+                            // Save to database
+                            // Note: viewModel.saveChanges() already runs in viewModelScope, no need to launch here
+                            viewModel.saveChanges()
+                        }
+                    } catch (e: Exception) {
+                        android.util.Log.e("HierarchicalFindingCard", "Error updating recommendations: ${e.message}", e)
+                    }
+                }
+                
+                // Add recommendation button
+                OutlinedButton(
+                    onClick = {
+                        val newRec = JsonObject().apply {
+                            addProperty("id", System.currentTimeMillis().toString())
+                            addProperty("description", "")
+                            addProperty("quantity", "")
+                            addProperty("unit", "")
+                            addProperty("pricePerUnit", "")
+                            addProperty("totalPrice", "")
+                        }
+                        recommendations.add(newRec)
+                        updateRecommendations(recommendations)
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.outlinedButtonColors(
+                        contentColor = Secondary
+                    ),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(20.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("הוסף המלצה")
+                }
+                
+                Spacer(modifier = Modifier.height(8.dp))
+                
+                // Display recommendations
+                recommendations.forEachIndexed { index, recElement ->
+                    val recObj = recElement.asJsonObject
+                    val recId = recObj.get("id")?.asString ?: ""
+                    val recDescription = recObj.get("description")?.asString ?: ""
+                    val recQuantity = recObj.get("quantity")?.asString ?: ""
+                    val recUnit = recObj.get("unit")?.asString ?: ""
+                    val recPricePerUnit = recObj.get("pricePerUnit")?.asString ?: ""
+                    val recTotalPrice = recObj.get("totalPrice")?.asString ?: ""
+                    
+                    var description by remember(recDescription) { mutableStateOf(recDescription) }
+                    var quantity by remember(recQuantity) { mutableStateOf(recQuantity) }
+                    var unit by remember(recUnit) { mutableStateOf(recUnit) }
+                    var pricePerUnit by remember(recPricePerUnit) { mutableStateOf(recPricePerUnit) }
+                    var totalPrice by remember(recTotalPrice) { mutableStateOf(recTotalPrice) }
+                    
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFFF5F5F5)),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            // Header with delete button
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "המלצה ${index + 1}",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                IconButton(
+                                    onClick = {
+                                        recommendations.remove(recElement)
+                                        updateRecommendations(recommendations)
+                                    },
+                                    modifier = Modifier.size(32.dp)
+                                ) {
+                                    Icon(
+                                        Icons.Default.Close,
+                                        contentDescription = "מחק המלצה",
+                                        tint = MaterialTheme.colorScheme.error,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                            }
+                            
+                            // Description field
+                            OutlinedTextField(
+                                value = description,
+                                onValueChange = { newValue ->
+                                    description = newValue
+                                    recObj.addProperty("description", newValue)
+                                    updateRecommendations(recommendations)
+                                },
+                                label = { Text("תיאור") },
+                                placeholder = { Text("תיאור ההמלצה") },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = false,
+                                minLines = 2,
+                                textStyle = MaterialTheme.typography.bodyLarge.copy(
+                                    textDirection = TextDirection.ContentOrRtl
+                                ),
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedBorderColor = Secondary,
+                                    focusedLabelColor = Secondary
+                                ),
+                                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next)
+                            )
+                            
+                            // Quantity and Unit in a row
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                OutlinedTextField(
+                                    value = quantity,
+                                    onValueChange = { newValue ->
+                                        if (newValue.isEmpty() || newValue.toDoubleOrNull() != null) {
+                                            quantity = newValue
+                                            recObj.addProperty("quantity", newValue)
+                                            
+                                            // Auto calculate total price
+                                            val qty = newValue.toDoubleOrNull() ?: 0.0
+                                            val price = pricePerUnit.toDoubleOrNull() ?: 0.0
+                                            val total = qty * price
+                                            totalPrice = if (total > 0) total.toString() else ""
+                                            recObj.addProperty("totalPrice", totalPrice)
+                                            
+                                            updateRecommendations(recommendations)
+                                        }
+                                    },
+                                    label = { Text("כמות") },
+                                    modifier = Modifier.weight(1f),
+                                    singleLine = true,
+                                    colors = OutlinedTextFieldDefaults.colors(
+                                        focusedBorderColor = Secondary,
+                                        focusedLabelColor = Secondary
+                                    ),
+                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                                )
+                                
+                                OutlinedTextField(
+                                    value = unit,
+                                    onValueChange = { newValue ->
+                                        unit = newValue
+                                        recObj.addProperty("unit", newValue)
+                                        updateRecommendations(recommendations)
+                                    },
+                                    label = { Text("יחידה") },
+                                    placeholder = { Text("מ\"ר / יח' / שעות") },
+                                    modifier = Modifier.weight(1f),
+                                    singleLine = true,
+                                    textStyle = MaterialTheme.typography.bodyLarge.copy(
+                                        textDirection = TextDirection.ContentOrRtl
+                                    ),
+                                    colors = OutlinedTextFieldDefaults.colors(
+                                        focusedBorderColor = Secondary,
+                                        focusedLabelColor = Secondary
+                                    ),
+                                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next)
+                                )
+                            }
+                            
+                            // Price per unit
+                            OutlinedTextField(
+                                value = pricePerUnit,
+                                onValueChange = { newValue ->
+                                    if (newValue.isEmpty() || newValue.toDoubleOrNull() != null) {
+                                        pricePerUnit = newValue
+                                        recObj.addProperty("pricePerUnit", newValue)
+                                        
+                                        // Auto calculate total price
+                                        val qty = quantity.toDoubleOrNull() ?: 0.0
+                                        val price = newValue.toDoubleOrNull() ?: 0.0
+                                        val total = qty * price
+                                        totalPrice = if (total > 0) total.toString() else ""
+                                        recObj.addProperty("totalPrice", totalPrice)
+                                        
+                                        updateRecommendations(recommendations)
+                                    }
+                                },
+                                label = { Text("מחיר יחידה") },
+                                placeholder = { Text("0.00") },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true,
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedBorderColor = Secondary,
+                                    focusedLabelColor = Secondary
+                                ),
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                            )
+                            
+                            // Total price (editable - can be manually overridden)
+                            OutlinedTextField(
+                                value = totalPrice,
+                                onValueChange = { newValue ->
+                                    if (newValue.isEmpty() || newValue.toDoubleOrNull() != null) {
+                                        totalPrice = newValue
+                                        recObj.addProperty("totalPrice", newValue)
+                                        updateRecommendations(recommendations)
+                                    }
+                                },
+                                label = { Text("מחיר כולל") },
+                                placeholder = { Text("0.00") },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true,
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedBorderColor = Accent,
+                                    focusedLabelColor = Accent
+                                ),
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                            )
+                        }
+                    }
+                    
+                    if (index < recommendations.size() - 1) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                    }
+                }
+                
+                if (recommendations.size() == 0) {
+                    Text(
+                        text = "אין כרגע המלצות, לחץ על 'הוסף המלצה' כדי להוסיף",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextSecondary,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp)
+                    )
+                }
+            }
+        }
+    }
+    
+    // Image Source Dialog
+    if (showImageSourceDialog) {
+        AlertDialog(
+            onDismissRequest = { showImageSourceDialog = false },
+            title = { Text("בחר מקור תמונה", fontWeight = FontWeight.Bold) },
+            text = {
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Button(
+                        onClick = {
+                            showImageSourceDialog = false
+                            onCameraClick(jobId, finding.id, "finding_images")
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(containerColor = Primary)
+                    ) {
+                        Icon(Icons.Default.CameraAlt, contentDescription = null)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("צלם תמונה")
+                    }
+                    Button(
+                        onClick = {
+                            showImageSourceDialog = false
+                            galleryLauncher.launch("image/*")
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(containerColor = Secondary)
+                    ) {
+                        Icon(Icons.Default.PhotoLibrary, contentDescription = null)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("בחר מהגלריה")
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showImageSourceDialog = false }) {
+                    Text("ביטול")
+                }
+            }
+        )
+    }
+    
+    // Delete confirmation dialog
+    if (showDeleteDialog) {
+        AlertDialog(
+            onDismissRequest = { showDeleteDialog = false },
+            title = { Text("מחיקת ממצא", fontWeight = FontWeight.Bold) },
+            text = { Text("האם אתה בטוח שברצונך למחוק את הממצא? פעולה זו לא ניתנת לשחזור.") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.deleteFindingFromCategory(categoryId, finding.id)
+                        showDeleteDialog = false
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                ) {
+                    Text("מחק")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteDialog = false }) {
                     Text("ביטול")
                 }
             }

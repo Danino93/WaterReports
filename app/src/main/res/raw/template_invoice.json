@@ -1,0 +1,213 @@
+{
+  "id": "template_invoice",
+  "name": "חשבונית/קבלה",
+  "description": "תבנית לחשבוניות וקבלות מקצועיות עם מספור רציף",
+  "icon": "receipt",
+  "version": "1.0.0",
+  "category": "commercial",
+  "sections": [
+    {
+      "id": "invoice_header",
+      "title": "כותרת חשבונית",
+      "order": 1,
+      "fields": [
+        {
+          "id": "invoice_type",
+          "type": "dropdown",
+          "label": "סוג מסמך",
+          "options": ["חשבונית", "קבלה"],
+          "default": "חשבונית",
+          "required": true
+        },
+        {
+          "id": "invoice_number",
+          "type": "text",
+          "label": "מספר חשבונית",
+          "placeholder": "יוגדר אוטומטית",
+          "required": true,
+          "lines": 1
+        },
+        {
+          "id": "invoice_date",
+          "type": "date",
+          "label": "תאריך חשבונית",
+          "required": true
+        },
+        {
+          "id": "payment_date",
+          "type": "date",
+          "label": "תאריך תשלום",
+          "required": false
+        }
+      ]
+    },
+    {
+      "id": "client_details",
+      "title": "פרטי הלקוח (קונה)",
+      "order": 2,
+      "fields": [
+        {
+          "id": "client_first_name",
+          "type": "text",
+          "label": "שם פרטי",
+          "placeholder": "",
+          "required": true,
+          "lines": 1
+        },
+        {
+          "id": "client_last_name",
+          "type": "text",
+          "label": "שם משפחה",
+          "placeholder": "",
+          "required": true,
+          "lines": 1
+        },
+        {
+          "id": "client_company",
+          "type": "text",
+          "label": "חברה",
+          "placeholder": "",
+          "required": false,
+          "lines": 1
+        },
+        {
+          "id": "client_id_number",
+          "type": "text",
+          "label": "ח.פ / ת.ז",
+          "placeholder": "",
+          "required": false,
+          "lines": 1
+        },
+        {
+          "id": "client_phone",
+          "type": "text",
+          "label": "טלפון",
+          "placeholder": "",
+          "required": true,
+          "lines": 1
+        },
+        {
+          "id": "client_email",
+          "type": "text",
+          "label": "אימייל",
+          "placeholder": "",
+          "required": false,
+          "lines": 1
+        },
+        {
+          "id": "client_city",
+          "type": "text",
+          "label": "עיר",
+          "placeholder": "",
+          "required": false,
+          "lines": 1
+        },
+        {
+          "id": "client_street",
+          "type": "text",
+          "label": "רחוב",
+          "placeholder": "",
+          "required": false,
+          "lines": 1
+        },
+        {
+          "id": "client_building_number",
+          "type": "text",
+          "label": "מספר בניין/רחוב",
+          "placeholder": "",
+          "required": false,
+          "lines": 1
+        },
+        {
+          "id": "client_apartment",
+          "type": "text",
+          "label": "דירה",
+          "placeholder": "",
+          "required": false,
+          "lines": 1
+        },
+        {
+          "id": "client_additional_address",
+          "type": "textarea",
+          "label": "פרטי כתובת נוספים",
+          "placeholder": "",
+          "required": false,
+          "lines": 2
+        }
+      ]
+    },
+    {
+      "id": "invoice_items",
+      "title": "פירוט פריטים/שירותים",
+      "order": 3,
+      "fields": []
+    },
+    {
+      "id": "pricing_summary",
+      "title": "סיכום מחירים",
+      "order": 4,
+      "fields": [
+        {
+          "id": "subtotal",
+          "type": "number",
+          "label": "סיכום לפני מע\"מ",
+          "default": 0,
+          "required": false
+        },
+        {
+          "id": "vat_rate",
+          "type": "number",
+          "label": "אחוז מע\"מ",
+          "default": 18,
+          "required": false
+        },
+        {
+          "id": "vat_amount",
+          "type": "number",
+          "label": "סכום מע\"מ",
+          "default": 0,
+          "required": false
+        },
+        {
+          "id": "total_with_vat",
+          "type": "number",
+          "label": "סה\"כ כולל מע\"מ",
+          "default": 0,
+          "required": false
+        }
+      ]
+    },
+    {
+      "id": "payment_terms",
+      "title": "תנאי תשלום",
+      "order": 5,
+      "fields": [
+        {
+          "id": "payment_method",
+          "type": "dropdown",
+          "label": "אופן תשלום",
+          "options": ["מזומן", "העברה בנקאית", "צ'ק", "אשראי", "אחר"],
+          "default": "העברה בנקאית",
+          "required": false
+        },
+        {
+          "id": "payment_notes",
+          "type": "textarea",
+          "label": "הערות תשלום",
+          "placeholder": "הערות נוספות על התשלום",
+          "required": false,
+          "lines": 3
+        },
+        {
+          "id": "general_notes",
+          "type": "textarea",
+          "label": "הערות כלליות",
+          "placeholder": "הערות נוספות",
+          "required": false,
+          "lines": 3
+        }
+      ]
+    }
+  ]
+}
+

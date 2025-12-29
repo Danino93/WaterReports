@@ -131,7 +131,33 @@ fun PreviewScreen(
                                         }
                                     }
                                     
-                                    successMessage = "הדוח נשמר בהצלחה!\nמיקום: Downloads/${pdfFile.name}"
+                                    // Open the PDF file after saving
+                                    try {
+                                        // Use FileProvider to create URI for the saved file
+                                        val uri = FileProvider.getUriForFile(
+                                            context,
+                                            "${context.packageName}.fileprovider",
+                                            destinationFile
+                                        )
+                                        
+                                        val openIntent = Intent(Intent.ACTION_VIEW).apply {
+                                            setDataAndType(uri, "application/pdf")
+                                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                        }
+                                        
+                                        // Try to open the PDF
+                                        context.startActivity(openIntent)
+                                        successMessage = "הדוח נשמר ונפתח בהצלחה!"
+                                    } catch (e: android.content.ActivityNotFoundException) {
+                                        // No PDF viewer app found
+                                        android.util.Log.w("PreviewScreen", "No PDF viewer app found")
+                                        successMessage = "הדוח נשמר בהצלחה!\nמיקום: Downloads/${pdfFile.name}\n\nאנא התקן אפליקציית PDF viewer כדי לפתוח את הקובץ."
+                                    } catch (e: Exception) {
+                                        // Other error (permissions, etc.)
+                                        android.util.Log.w("PreviewScreen", "Could not open PDF: ${e.message}")
+                                        successMessage = "הדוח נשמר בהצלחה!\nמיקום: Downloads/${pdfFile.name}"
+                                    }
                                     showSuccessMessage = true
                                 } catch (e: Exception) {
                                     pdfViewModel.setError("שגיאה בשמירת הקובץ: ${e.message}")

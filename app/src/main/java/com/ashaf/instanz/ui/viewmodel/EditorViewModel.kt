@@ -30,7 +30,11 @@ class EditorViewModel(
     private val _error = MutableStateFlow<String?>(null)
     val error: StateFlow<String?> = _error.asStateFlow()
     
-    // Dynamic findings list
+    // Dynamic categories with hierarchical findings
+    private val _categories = MutableStateFlow<List<FindingCategory>>(emptyList())
+    val categories: StateFlow<List<FindingCategory>> = _categories.asStateFlow()
+    
+    // Backward compatibility - flat findings list (for migration)
     private val _findings = MutableStateFlow<List<String>>(emptyList())
     val findings: StateFlow<List<String>> = _findings.asStateFlow()
     
@@ -50,7 +54,8 @@ class EditorViewModel(
                 job?.let {
                     val template = templateRepository.getTemplateById(it.templateId)
                     _template.value = template
-                    loadFindings()
+                    loadCategories() // Load hierarchical structure first
+                    loadFindings() // Backward compatibility for old structure
                 }
             } catch (e: Exception) {
                 _error.value = e.message
@@ -407,5 +412,578 @@ class EditorViewModel(
             }
         }
     }
+    
+    // =====================================================
+    // HIERARCHICAL FINDINGS - NEW STRUCTURE
+    // =====================================================
+    
+    /**
+     * Load categories and findings from job.dataJson
+     * Supports both new hierarchical structure and old flat structure (migration)
+     */
+    private fun loadCategories() {
+        val job = _job.value ?: return
+        if (job.dataJson.isBlank() || job.dataJson == "{}") {
+            _categories.value = emptyList()
+            return
+        }
+        
+        try {
+            val dataJson = gson.fromJson(job.dataJson, JsonObject::class.java)
+            
+            // Check if new hierarchical structure exists
+            if (dataJson.has("categories")) {
+                val categoriesArray = dataJson.getAsJsonArray("categories")
+                val categoriesList = mutableListOf<FindingCategory>()
+                
+                categoriesArray.forEach { categoryElement ->
+                    val categoryObj = categoryElement.asJsonObject
+                    val categoryId = categoryObj.get("id")?.asString ?: return@forEach
+                    val title = categoryObj.get("title")?.asString ?: ""
+                    val order = categoryObj.get("order")?.asInt ?: 0
+                    
+                    val findingsList = mutableListOf<FindingItem>()
+                    if (categoryObj.has("findings")) {
+                        val findingsArray = categoryObj.getAsJsonArray("findings")
+                        findingsArray.forEach { findingElement ->
+                            val findingObj = findingElement.asJsonObject
+                            val findingId = findingObj.get("id")?.asString ?: return@forEach
+                            val subject = findingObj.get("subject")?.asString ?: ""
+                            val description = findingObj.get("description")?.asString ?: ""
+                            val note = findingObj.get("note")?.asString ?: ""
+                            
+                            findingsList.add(FindingItem(findingId, subject, description, note))
+                        }
+                    }
+                    
+                    categoriesList.add(FindingCategory(categoryId, title, order, findingsList))
+                }
+                
+                _categories.value = categoriesList.sortedBy { it.order }
+            } else {
+                // Backward compatibility - convert old flat structure to hierarchical
+                loadFindings() // Load old findings
+                _categories.value = emptyList() // No categories yet
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("EditorViewModel", "Error loading categories: ${e.message}", e)
+            _categories.value = emptyList()
+        }
+    }
+    
+    /**
+     * Add a new category
+     */
+    fun addCategory(title: String = "קטגוריה חדשה") {
+        viewModelScope.launch {
+            val currentJob = _job.value ?: return@launch
+            val categoryId = "category_${System.currentTimeMillis()}"
+            
+            try {
+                val dataJson = if (currentJob.dataJson.isBlank() || currentJob.dataJson == "{}") {
+                    JsonObject()
+                } else {
+                    gson.fromJson(currentJob.dataJson, JsonObject::class.java)
+                }
+                
+                // Get or create categories array
+                val categoriesArray = if (dataJson.has("categories")) {
+                    dataJson.getAsJsonArray("categories")
+                } else {
+                    com.google.gson.JsonArray()
+                }
+                
+                // Create new category object
+                val categoryObj = JsonObject()
+                categoryObj.addProperty("id", categoryId)
+                categoryObj.addProperty("title", title)
+                categoryObj.addProperty("order", categoriesArray.size())
+                categoryObj.add("findings", com.google.gson.JsonArray())
+                
+                categoriesArray.add(categoryObj)
+                dataJson.add("categories", categoriesArray)
+                
+                val updatedJob = currentJob.copy(
+                    dataJson = gson.toJson(dataJson),
+                    dateModified = System.currentTimeMillis()
+                )
+                
+                jobRepository.updateJob(updatedJob)
+                _job.value = updatedJob
+                loadCategories()
+            } catch (e: Exception) {
+                android.util.Log.e("EditorViewModel", "Error adding category: ${e.message}", e)
+                _error.value = e.message
+            }
+        }
+    }
+    
+    /**
+     * Update category title
+     */
+    fun updateCategoryTitle(categoryId: String, newTitle: String) {
+        viewModelScope.launch {
+            val currentJob = _job.value ?: return@launch
+            
+            try {
+                val dataJson = gson.fromJson(currentJob.dataJson, JsonObject::class.java)
+                
+                if (dataJson.has("categories")) {
+                    val categoriesArray = dataJson.getAsJsonArray("categories")
+                    categoriesArray.forEachIndexed { index, categoryElement ->
+                        val categoryObj = categoryElement.asJsonObject
+                        if (categoryObj.get("id")?.asString == categoryId) {
+                            categoryObj.addProperty("title", newTitle)
+                        }
+                    }
+                    
+                    val updatedJob = currentJob.copy(
+                        dataJson = gson.toJson(dataJson),
+                        dateModified = System.currentTimeMillis()
+                    )
+                    
+                    jobRepository.updateJob(updatedJob)
+                    _job.value = updatedJob
+                    loadCategories()
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("EditorViewModel", "Error updating category: ${e.message}", e)
+                _error.value = e.message
+            }
+        }
+    }
+    
+    /**
+     * Delete a category and all its findings
+     */
+    fun deleteCategory(categoryId: String) {
+        viewModelScope.launch {
+            val currentJob = _job.value ?: return@launch
+            
+            try {
+                val dataJson = gson.fromJson(currentJob.dataJson, JsonObject::class.java)
+                
+                if (dataJson.has("categories")) {
+                    val categoriesArray = dataJson.getAsJsonArray("categories")
+                    val newArray = com.google.gson.JsonArray()
+                    categoriesArray.forEach { categoryElement ->
+                        val categoryObj = categoryElement.asJsonObject
+                        if (categoryObj.get("id")?.asString != categoryId) {
+                            newArray.add(categoryElement)
+                        }
+                    }
+                    dataJson.add("categories", newArray)
+                    
+                    val updatedJob = currentJob.copy(
+                        dataJson = gson.toJson(dataJson),
+                        dateModified = System.currentTimeMillis()
+                    )
+                    
+                    jobRepository.updateJob(updatedJob)
+                    _job.value = updatedJob
+                    loadCategories()
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("EditorViewModel", "Error deleting category: ${e.message}", e)
+                _error.value = e.message
+            }
+        }
+    }
+    
+    /**
+     * Move category up in order
+     */
+    fun moveCategoryUp(categoryId: String) {
+        viewModelScope.launch {
+            val currentJob = _job.value ?: return@launch
+            
+            try {
+                val dataJson = gson.fromJson(currentJob.dataJson, JsonObject::class.java)
+                
+                if (dataJson.has("categories")) {
+                    val categoriesArray = dataJson.getAsJsonArray("categories")
+                    val categoriesList = mutableListOf<JsonObject>()
+                    categoriesArray.forEach { categoriesList.add(it.asJsonObject) }
+                    
+                    val index = categoriesList.indexOfFirst { it.get("id")?.asString == categoryId }
+                    if (index > 0) {
+                        // Swap with previous
+                        val temp = categoriesList[index - 1]
+                        categoriesList[index - 1] = categoriesList[index]
+                        categoriesList[index] = temp
+                        
+                        // Update order property
+                        categoriesList.forEachIndexed { i, cat -> cat.addProperty("order", i) }
+                        
+                        // Rebuild array
+                        val newArray = com.google.gson.JsonArray()
+                        categoriesList.forEach { newArray.add(it) }
+                        dataJson.add("categories", newArray)
+                        
+                        val updatedJob = currentJob.copy(
+                            dataJson = gson.toJson(dataJson),
+                            dateModified = System.currentTimeMillis()
+                        )
+                        
+                        jobRepository.updateJob(updatedJob)
+                        _job.value = updatedJob
+                        loadCategories()
+                    }
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("EditorViewModel", "Error moving category up: ${e.message}", e)
+                _error.value = e.message
+            }
+        }
+    }
+    
+    /**
+     * Move category down in order
+     */
+    fun moveCategoryDown(categoryId: String) {
+        viewModelScope.launch {
+            val currentJob = _job.value ?: return@launch
+            
+            try {
+                val dataJson = gson.fromJson(currentJob.dataJson, JsonObject::class.java)
+                
+                if (dataJson.has("categories")) {
+                    val categoriesArray = dataJson.getAsJsonArray("categories")
+                    val categoriesList = mutableListOf<JsonObject>()
+                    categoriesArray.forEach { categoriesList.add(it.asJsonObject) }
+                    
+                    val index = categoriesList.indexOfFirst { it.get("id")?.asString == categoryId }
+                    if (index >= 0 && index < categoriesList.size - 1) {
+                        // Swap with next
+                        val temp = categoriesList[index + 1]
+                        categoriesList[index + 1] = categoriesList[index]
+                        categoriesList[index] = temp
+                        
+                        // Update order property
+                        categoriesList.forEachIndexed { i, cat -> cat.addProperty("order", i) }
+                        
+                        // Rebuild array
+                        val newArray = com.google.gson.JsonArray()
+                        categoriesList.forEach { newArray.add(it) }
+                        dataJson.add("categories", newArray)
+                        
+                        val updatedJob = currentJob.copy(
+                            dataJson = gson.toJson(dataJson),
+                            dateModified = System.currentTimeMillis()
+                        )
+                        
+                        jobRepository.updateJob(updatedJob)
+                        _job.value = updatedJob
+                        loadCategories()
+                    }
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("EditorViewModel", "Error moving category down: ${e.message}", e)
+                _error.value = e.message
+            }
+        }
+    }
+    
+    /**
+     * Add a new finding to a specific category
+     */
+    fun addFindingToCategory(categoryId: String) {
+        viewModelScope.launch {
+            val currentJob = _job.value ?: return@launch
+            val findingId = "finding_${System.currentTimeMillis()}"
+            
+            try {
+                val dataJson = gson.fromJson(currentJob.dataJson, JsonObject::class.java)
+                
+                if (dataJson.has("categories")) {
+                    val categoriesArray = dataJson.getAsJsonArray("categories")
+                    categoriesArray.forEach { categoryElement ->
+                        val categoryObj = categoryElement.asJsonObject
+                        if (categoryObj.get("id")?.asString == categoryId) {
+                            val findingsArray = if (categoryObj.has("findings")) {
+                                categoryObj.getAsJsonArray("findings")
+                            } else {
+                                com.google.gson.JsonArray()
+                            }
+                            
+                            val findingObj = JsonObject()
+                            findingObj.addProperty("id", findingId)
+                            findingObj.addProperty("subject", "")
+                            findingObj.addProperty("description", "")
+                            findingObj.addProperty("note", "")
+                            findingObj.add("recommendations", com.google.gson.JsonArray())
+                            
+                            findingsArray.add(findingObj)
+                            categoryObj.add("findings", findingsArray)
+                        }
+                    }
+                    
+                    val updatedJob = currentJob.copy(
+                        dataJson = gson.toJson(dataJson),
+                        dateModified = System.currentTimeMillis()
+                    )
+                    
+                    jobRepository.updateJob(updatedJob)
+                    _job.value = updatedJob
+                    loadCategories()
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("EditorViewModel", "Error adding finding: ${e.message}", e)
+                _error.value = e.message
+            }
+        }
+    }
+    
+    /**
+     * Update finding field in a specific category
+     */
+    fun updateFindingInCategory(categoryId: String, findingId: String, fieldName: String, value: String) {
+        viewModelScope.launch {
+            val currentJob = _job.value ?: return@launch
+            
+            try {
+                val dataJson = gson.fromJson(currentJob.dataJson, JsonObject::class.java)
+                
+                if (dataJson.has("categories")) {
+                    val categoriesArray = dataJson.getAsJsonArray("categories")
+                    categoriesArray.forEach { categoryElement ->
+                        val categoryObj = categoryElement.asJsonObject
+                        if (categoryObj.get("id")?.asString == categoryId) {
+                            if (categoryObj.has("findings")) {
+                                val findingsArray = categoryObj.getAsJsonArray("findings")
+                                findingsArray.forEach { findingElement ->
+                                    val findingObj = findingElement.asJsonObject
+                                    if (findingObj.get("id")?.asString == findingId) {
+                                        findingObj.addProperty(fieldName, value)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    
+                    val updatedJob = currentJob.copy(
+                        dataJson = gson.toJson(dataJson),
+                        dateModified = System.currentTimeMillis()
+                    )
+                    
+                    jobRepository.updateJob(updatedJob)
+                    _job.value = updatedJob
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("EditorViewModel", "Error updating finding: ${e.message}", e)
+                _error.value = e.message
+            }
+        }
+    }
+    
+    /**
+     * Delete a finding from a category
+     */
+    fun deleteFindingFromCategory(categoryId: String, findingId: String) {
+        viewModelScope.launch {
+            val currentJob = _job.value ?: return@launch
+            
+            try {
+                val dataJson = gson.fromJson(currentJob.dataJson, JsonObject::class.java)
+                
+                if (dataJson.has("categories")) {
+                    val categoriesArray = dataJson.getAsJsonArray("categories")
+                    categoriesArray.forEach { categoryElement ->
+                        val categoryObj = categoryElement.asJsonObject
+                        if (categoryObj.get("id")?.asString == categoryId) {
+                            if (categoryObj.has("findings")) {
+                                val findingsArray = categoryObj.getAsJsonArray("findings")
+                                val newArray = com.google.gson.JsonArray()
+                                findingsArray.forEach { findingElement ->
+                                    val findingObj = findingElement.asJsonObject
+                                    if (findingObj.get("id")?.asString != findingId) {
+                                        newArray.add(findingElement)
+                                    }
+                                }
+                                categoryObj.add("findings", newArray)
+                            }
+                        }
+                    }
+                    
+                    val updatedJob = currentJob.copy(
+                        dataJson = gson.toJson(dataJson),
+                        dateModified = System.currentTimeMillis()
+                    )
+                    
+                    jobRepository.updateJob(updatedJob)
+                    _job.value = updatedJob
+                    loadCategories()
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("EditorViewModel", "Error deleting finding: ${e.message}", e)
+                _error.value = e.message
+            }
+        }
+    }
+    
+    /**
+     * Move finding within the same category (up/down)
+     */
+    fun moveFindingInCategory(categoryId: String, findingId: String, direction: Int) {
+        viewModelScope.launch {
+            val currentJob = _job.value ?: return@launch
+            
+            try {
+                val dataJson = gson.fromJson(currentJob.dataJson, JsonObject::class.java)
+                
+                if (dataJson.has("categories")) {
+                    val categoriesArray = dataJson.getAsJsonArray("categories")
+                    categoriesArray.forEach { categoryElement ->
+                        val categoryObj = categoryElement.asJsonObject
+                        if (categoryObj.get("id")?.asString == categoryId) {
+                            if (categoryObj.has("findings")) {
+                                val findingsArray = categoryObj.getAsJsonArray("findings")
+                                val findingsList = mutableListOf<JsonObject>()
+                                findingsArray.forEach { findingsList.add(it.asJsonObject) }
+                                
+                                val index = findingsList.indexOfFirst { it.get("id")?.asString == findingId }
+                                if (direction == -1 && index > 0) {
+                                    // Move up
+                                    val temp = findingsList[index - 1]
+                                    findingsList[index - 1] = findingsList[index]
+                                    findingsList[index] = temp
+                                    
+                                    val newArray = com.google.gson.JsonArray()
+                                    findingsList.forEach { newArray.add(it) }
+                                    categoryObj.add("findings", newArray)
+                                } else if (direction == 1 && index >= 0 && index < findingsList.size - 1) {
+                                    // Move down
+                                    val temp = findingsList[index + 1]
+                                    findingsList[index + 1] = findingsList[index]
+                                    findingsList[index] = temp
+                                    
+                                    val newArray = com.google.gson.JsonArray()
+                                    findingsList.forEach { newArray.add(it) }
+                                    categoryObj.add("findings", newArray)
+                                }
+                            }
+                        }
+                    }
+                    
+                    val updatedJob = currentJob.copy(
+                        dataJson = gson.toJson(dataJson),
+                        dateModified = System.currentTimeMillis()
+                    )
+                    
+                    jobRepository.updateJob(updatedJob)
+                    _job.value = updatedJob
+                    loadCategories()
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("EditorViewModel", "Error moving finding: ${e.message}", e)
+                _error.value = e.message
+            }
+        }
+    }
+    
+    /**
+     * Migrate old flat findings structure to new hierarchical structure
+     * Creates a default category "ממצאים" and moves all findings there
+     */
+    fun migrateToHierarchicalStructure() {
+        viewModelScope.launch {
+            val currentJob = _job.value ?: return@launch
+            
+            try {
+                val dataJson = gson.fromJson(currentJob.dataJson, JsonObject::class.java)
+                
+                // Check if already using new structure
+                if (dataJson.has("categories")) {
+                    android.util.Log.d("EditorViewModel", "Already using hierarchical structure")
+                    return@launch
+                }
+                
+                // Check if there are old findings to migrate
+                if (!dataJson.has("findings")) {
+                    android.util.Log.d("EditorViewModel", "No findings to migrate")
+                    return@launch
+                }
+                
+                val oldFindingsArray = dataJson.getAsJsonArray("findings")
+                if (oldFindingsArray.size() == 0) {
+                    android.util.Log.d("EditorViewModel", "No findings to migrate (empty array)")
+                    return@launch
+                }
+                
+                // Create default category
+                val defaultCategory = JsonObject()
+                defaultCategory.addProperty("id", "category_${System.currentTimeMillis()}")
+                defaultCategory.addProperty("title", "ממצאים")
+                defaultCategory.addProperty("order", 0)
+                
+                val newFindingsArray = com.google.gson.JsonArray()
+                
+                // Migrate each old finding
+                oldFindingsArray.forEach { findingIdElement ->
+                    val findingId = findingIdElement.asString
+                    if (dataJson.has(findingId)) {
+                        val oldFindingData = dataJson.getAsJsonObject(findingId)
+                        
+                        val newFinding = JsonObject()
+                        newFinding.addProperty("id", findingId)
+                        newFinding.addProperty("subject", oldFindingData.get("finding_subject")?.asString ?: "")
+                        newFinding.addProperty("description", oldFindingData.get("finding_description")?.asString ?: "")
+                        newFinding.addProperty("note", oldFindingData.get("finding_note")?.asString ?: "")
+                        
+                        // Copy recommendations if exists
+                        if (oldFindingData.has("recommendations")) {
+                            newFinding.add("recommendations", oldFindingData.getAsJsonArray("recommendations"))
+                        } else {
+                            newFinding.add("recommendations", com.google.gson.JsonArray())
+                        }
+                        
+                        newFindingsArray.add(newFinding)
+                        
+                        // Remove old finding data
+                        dataJson.remove(findingId)
+                    }
+                }
+                
+                defaultCategory.add("findings", newFindingsArray)
+                
+                // Create categories array
+                val categoriesArray = com.google.gson.JsonArray()
+                categoriesArray.add(defaultCategory)
+                dataJson.add("categories", categoriesArray)
+                
+                // Remove old findings array
+                dataJson.remove("findings")
+                
+                val updatedJob = currentJob.copy(
+                    dataJson = gson.toJson(dataJson),
+                    dateModified = System.currentTimeMillis()
+                )
+                
+                jobRepository.updateJob(updatedJob)
+                _job.value = updatedJob
+                loadCategories()
+                
+                android.util.Log.d("EditorViewModel", "✅ Successfully migrated ${newFindingsArray.size()} findings to hierarchical structure")
+            } catch (e: Exception) {
+                android.util.Log.e("EditorViewModel", "❌ Error migrating to hierarchical structure: ${e.message}", e)
+                _error.value = e.message
+            }
+        }
+    }
 }
+
+// Data classes for hierarchical findings
+data class FindingCategory(
+    val id: String,
+    val title: String,
+    val order: Int,
+    val findings: List<FindingItem>
+)
+
+data class FindingItem(
+    val id: String,
+    val subject: String,
+    val description: String,
+    val note: String
+)
 

@@ -28,6 +28,7 @@ class SettingsDataStore(private val context: Context) {
         private val UNLIMITED_JOBS = booleanPreferencesKey("unlimited_jobs")
         private val ACCOUNT_STATUS = stringPreferencesKey("account_status")
         private val LAST_BACKUP_DATE = longPreferencesKey("last_backup_date")
+        private val LAST_INVOICE_NUMBER = intPreferencesKey("last_invoice_number")
     }
     
     // Version Number
@@ -192,6 +193,27 @@ class SettingsDataStore(private val context: Context) {
     suspend fun saveLastBackupDate(date: Long) {
         context.settingsDataStore.edit { preferences ->
             preferences[LAST_BACKUP_DATE] = date
+        }
+    }
+    
+    // Last Invoice Number - for sequential invoice numbering (legally required)
+    val lastInvoiceNumber: Flow<Int> = context.settingsDataStore.data.map { preferences ->
+        preferences[LAST_INVOICE_NUMBER] ?: 0
+    }
+    
+    suspend fun getNextInvoiceNumber(): Int {
+        var nextNumber = 0
+        context.settingsDataStore.edit { preferences ->
+            val current = preferences[LAST_INVOICE_NUMBER] ?: 0
+            nextNumber = current + 1
+            preferences[LAST_INVOICE_NUMBER] = nextNumber
+        }
+        return nextNumber
+    }
+    
+    suspend fun saveLastInvoiceNumber(number: Int) {
+        context.settingsDataStore.edit { preferences ->
+            preferences[LAST_INVOICE_NUMBER] = number
         }
     }
 }

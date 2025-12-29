@@ -9,6 +9,7 @@ import com.ashaf.instanz.data.repositories.JobRepository
 import com.ashaf.instanz.data.repositories.TemplateRepository
 import com.ashaf.instanz.utils.PdfGenerator
 import com.ashaf.instanz.utils.QuotePdfGenerator
+import com.ashaf.instanz.utils.InvoicePdfGenerator
 import com.google.gson.Gson
 import com.google.gson.JsonObject
 import kotlinx.coroutines.flow.*
@@ -55,6 +56,10 @@ class PdfViewModel(
                 
                 // Load images
                 val images = imageRepository.getImagesForJob(jobId).first()
+                android.util.Log.d("PdfViewModel", "📸 Loaded ${images.size} total images for job $jobId")
+                images.forEachIndexed { idx, img ->
+                    android.util.Log.d("PdfViewModel", "  Image ${idx + 1}: sectionId='${img.sectionId}', order=${img.order}, path=${img.filePath}")
+                }
                 
                 // Parse dataJson
                 android.util.Log.d("PdfViewModel", "==== PDF Generation Debug ====")
@@ -79,33 +84,50 @@ class PdfViewModel(
                 val showPrices = jobSettings.showPricesInReport
                 val showVat = jobSettings.showVatInReport
                 
-                // Generate PDF - use QuotePdfGenerator for quote templates
-                val pdfFile = if (template.id == "template_quote") {
-                    val quotePdfGenerator = QuotePdfGenerator(
-                        context = context,
-                        vatPercent = vatPercent,
-                        showPrices = showPrices,
-                        showVat = showVat,
-                        jobSettings = jobSettings
-                    )
-                    quotePdfGenerator.generateQuotePdf(
-                        job = job,
-                        template = template,
-                        dataJson = dataJson
-                    )
-                } else {
-                    val pdfGenerator = PdfGenerator(
-                        context = context,
-                        imagesPerRow = imagesPerRow,
-                        showHeader = showHeader,
-                        jobSettings = jobSettings
-                    )
-                    pdfGenerator.generateJobReport(
-                        job = job,
-                        template = template,
-                        images = images,
-                        dataJson = dataJson
-                    )
+                // Generate PDF - use appropriate generator based on template type
+                val pdfFile = when (template.id) {
+                    "template_quote" -> {
+                        val quotePdfGenerator = QuotePdfGenerator(
+                            context = context,
+                            vatPercent = vatPercent,
+                            showPrices = showPrices,
+                            showVat = showVat,
+                            jobSettings = jobSettings
+                        )
+                        quotePdfGenerator.generateQuotePdf(
+                            job = job,
+                            template = template,
+                            dataJson = dataJson
+                        )
+                    }
+                    "template_invoice" -> {
+                        val invoicePdfGenerator = InvoicePdfGenerator(
+                            context = context,
+                            vatPercent = vatPercent,
+                            showPrices = showPrices,
+                            showVat = showVat,
+                            jobSettings = jobSettings
+                        )
+                        invoicePdfGenerator.generateInvoicePdf(
+                            job = job,
+                            template = template,
+                            dataJson = dataJson
+                        )
+                    }
+                    else -> {
+                        val pdfGenerator = PdfGenerator(
+                            context = context,
+                            imagesPerRow = imagesPerRow,
+                            showHeader = showHeader,
+                            jobSettings = jobSettings
+                        )
+                        pdfGenerator.generateJobReport(
+                            job = job,
+                            template = template,
+                            images = images,
+                            dataJson = dataJson
+                        )
+                    }
                 }
                 
                 _generatedPdfFile.value = pdfFile

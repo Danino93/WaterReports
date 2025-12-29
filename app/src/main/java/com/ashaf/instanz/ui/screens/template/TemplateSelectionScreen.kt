@@ -26,6 +26,8 @@ import com.ashaf.instanz.ui.theme.*
 import com.ashaf.instanz.ui.viewmodel.TemplateViewModel
 import com.ashaf.instanz.ui.viewmodel.ViewModelFactory
 import com.ashaf.instanz.utils.TemplateLoader
+import com.google.gson.Gson
+import com.google.gson.JsonObject
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -64,6 +66,15 @@ fun TemplateSelectionScreen(
                 resId = R.raw.template_quote
             )
             quoteTemplate?.let {
+                appContainer.templateRepository.insertTemplate(it)
+            }
+            
+            // Load invoice template
+            val invoiceTemplate = TemplateLoader.loadTemplateFromRaw(
+                context = context,
+                resId = R.raw.template_invoice
+            )
+            invoiceTemplate?.let {
                 appContainer.templateRepository.insertTemplate(it)
             }
         }
@@ -115,6 +126,17 @@ fun TemplateSelectionScreen(
                             template = template,
                             onClick = {
                                 scope.launch {
+                                    // Initialize dataJson
+                                    val dataJson = com.google.gson.JsonObject()
+                                    
+                                    // If this is an invoice template, set the invoice number automatically
+                                    if (template.id == "template_invoice") {
+                                        val invoiceNumber = appContainer.settingsDataStore.getNextInvoiceNumber()
+                                        val invoiceHeader = com.google.gson.JsonObject()
+                                        invoiceHeader.addProperty("invoice_number", invoiceNumber.toString())
+                                        dataJson.add("invoice_header", invoiceHeader)
+                                    }
+                                    
                                     // Create a new job immediately
                                     val newJob = com.ashaf.instanz.data.models.Job(
                                         templateId = template.id,
@@ -128,7 +150,7 @@ fun TemplateSelectionScreen(
                                         dateCreated = System.currentTimeMillis(),
                                         dateModified = System.currentTimeMillis(),
                                         status = com.ashaf.instanz.data.models.JobStatus.DRAFT,
-                                        dataJson = "{}"
+                                        dataJson = com.google.gson.Gson().toJson(dataJson)
                                     )
                                     val jobId = appContainer.jobRepository.insertJob(newJob)
                                     onTemplateSelected(template.id, jobId)

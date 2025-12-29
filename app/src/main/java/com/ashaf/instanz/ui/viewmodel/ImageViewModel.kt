@@ -7,6 +7,7 @@ import com.ashaf.instanz.data.repositories.ImageRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import java.io.File
 
@@ -48,8 +49,10 @@ class ImageViewModel(
             try {
                 val file = File(filePath)
                 if (file.exists()) {
-                    // Get current max order for this section
-                    val currentImages = _images.value.filter { it.sectionId == sectionId }
+                    // CRITICAL FIX: Load images from database to get accurate order
+                    // Don't rely on _images.value which might not be updated yet
+                    val allImages = imageRepository.getImagesForJob(jobId).first()
+                    val currentImages = allImages.filter { it.sectionId == sectionId }
                     val nextOrder = (currentImages.maxOfOrNull { it.order } ?: -1) + 1
                     
                     val image = JobImage(

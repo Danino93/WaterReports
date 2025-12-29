@@ -12,7 +12,7 @@ interface JobImageDao {
     @Query("SELECT * FROM job_images WHERE jobId = :jobId AND sectionId = :sectionId ORDER BY `order`")
     fun getImagesForSection(jobId: Long, sectionId: String): Flow<List<JobImage>>
     
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    @Insert(onConflict = OnConflictStrategy.ABORT)
     suspend fun insertImage(image: JobImage): Long
     
     @Insert(onConflict = OnConflictStrategy.REPLACE)
